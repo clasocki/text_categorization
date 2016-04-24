@@ -11,6 +11,7 @@ from itertools import izip
 import MySQLdb
 from enum import Enum
 import sys
+import math
 
 from scipy.linalg.lapack import get_lapack_funcs
 
@@ -20,13 +21,14 @@ except ImportError:
     from scipy.linalg.special_matrices import triu
 
 
-def svd_factorization(R, P, Q, K, steps=3000, alpha=0.002, beta=0.02):
+def svd_factorization(R, P, Q, K, steps=1000, alpha=0.002, beta=0.02):
     Q = Q.T
     min_err = sys.maxint
     for step in xrange(steps):
         for i, doc in enumerate(R):
             for j in xrange(len(doc)):
                 #if doc[j] > 0:
+                    #eij = (doc[j] / float(sum(doc))) - numpy.dot(P[i,:],Q[:,j])
                     eij = doc[j] - numpy.dot(P[i,:],Q[:,j])
                     for k in xrange(K):
                         P[i][k] = P[i][k] + alpha * (2 * eij * Q[k][j] - beta * P[i][k])
@@ -152,6 +154,7 @@ class Dictionary(Mapping):
         return iter(self.keys())
 
     def __init__(self, documents=None):
+        self.num_docs = 0
         self.token_to_id = dict()  # token -> token id
         self.id_to_token = dict()  # token id -> token
         self.doc_freqs = defaultdict(int)  # token id -> the number of documents this token appears in
@@ -169,6 +172,7 @@ class Dictionary(Mapping):
             token_freq_map[token] += 1
 
         if allow_update:
+            self.num_docs += 1
             for token, freq in token_freq_map.iteritems():
                 if token not in self.token_to_id:
                     self.token_to_id[token] = len(self.token_to_id)
@@ -199,11 +203,31 @@ class Dictionary(Mapping):
         self.id_to_token = dict()
 
 
+class TfidfModel(object):
+    def __init__(self, dictionary):
+        self.dictionary = dictionary
+
+    def __getitem__(self, bag_of_words):
+        tf_sum = sum([token_freq for (token_id, token_freq) in bag_of_words.iteritems()])
+        return dict((token_id,
+                     self.tf(token_freq, tf_sum)) #* self.idf(self.dictionary.doc_freqs[token_id], self.dictionary.num_docs))
+                    for (token_id, token_freq) in bag_of_words.iteritems())
+
+    @staticmethod
+    def tf(token_freq, tf_sum):
+        return 1.0 * token_freq / tf_sum
+
+    @staticmethod
+    def idf(doc_freq, total_docs, log_base=2.0):
+        return math.log(1.0 * total_docs / doc_freq, log_base)
+
+
 class Corpus(object):
     def __init__(self, doc_iterator, stop_words):
         self.doc_iterator = doc_iterator
         self.stop_list = stop_words
         self.dictionary = Dictionary(doc_iterator())
+        self.tfidf_model = TfidfModel(self.dictionary)
         stop_ids = [self.dictionary.token_to_id[stop_word] for stop_word in self.stop_list
                     if stop_word in self.dictionary.token_to_id]
         once_ids = [token_id for token_id, doc_freq in self.dictionary.doc_freqs.iteritems() if doc_freq == 1]
@@ -212,12 +236,12 @@ class Corpus(object):
     def __iter__(self):
         for tokens in self.doc_iterator():
             #yield self.dictionary.doc_to_bag_of_words(tokens)
-            yield doc_to_vec(len(self.dictionary.items()), self.dictionary.doc_to_bag_of_words(tokens))
+            yield doc_to_vec(len(self.dictionary.items()), self.tfidf_model[self.dictionary.doc_to_bag_of_words(tokens)])
 
 
-def doc_to_vec(term_count, doc_as_bow):
+def doc_to_vec(term_count, doc):
     doc_vector = [0] * term_count
-    for (word, freq) in doc_as_bow.iteritems():
+    for (word, freq) in doc.iteritems():
         doc_vector[word] = freq
 
     return doc_vector
@@ -293,7 +317,7 @@ def select_factorization_algorithm(factorization_algo, corpus=None, doc_count=0,
 
 
 def run_factorization():
-    doc_count, corpus = select_corpus(DataSourceType.local_hci_graphs)
+    doc_count, corpus = select_corpus(DataSourceType.local_nasa_elections)
     print corpus.dictionary.items()
 
     PP, S, QQ = select_factorization_algorithm(FactorizationAlgorithm.gradient_descent,

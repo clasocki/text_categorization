@@ -28,8 +28,8 @@ additional_documents_elephants = [
     "Once common throughout Africa and Asia elephant numbers fell dramatically in the 19th and 20th centuries"
 ]
 
-stop_list = set('for a of the and to in'.split())
-
+#stop_list = set('for a of the and to in'.split())
+stop_list = set()
 
 class DictionaryBasedCorpus(object):
     def __init__(self, dictionary, corpus_source_file):
@@ -96,10 +96,11 @@ print "Korpus tfidf"
 for doc in corpus_tfidf:
     print doc
 
-#lsi = models.LsiModel(corpus_tfidf, id2word=corpus.dictionary, num_topics=2, )
-#corpus_lsi = lsi[corpus_tfidf]
-lsi = models.LsiModel(corpus, id2word=corpus.dictionary, num_topics=3)
-corpus_lsi = lsi[corpus]
+num_topics = 2
+lsi = models.LsiModel(corpus_tfidf, id2word=corpus.dictionary, num_topics=num_topics)
+corpus_lsi = lsi[corpus_tfidf]
+#lsi = models.LsiModel(corpus, id2word=corpus.dictionary, num_topics=num_topics)
+#corpus_lsi = lsi[corpus]
 print "Topic 1:"
 lsi.show_topic(1)
 
@@ -109,8 +110,9 @@ doc_count = 0
 PP = []
 for doc in corpus_lsi: # both bow->tfidf and tfidf->lsi transformations are actually executed here, on the fly
     print doc
-    doc_features = [feature_val for (feature_id, feature_val) in doc]
-    PP.append(doc_features)
+    doc_features_dict = {feature_id: feature_val for (feature_id, feature_val) in doc}
+    doc_features_list = [doc_features_dict[i] if i in doc_features_dict else 0 for i in range(0, num_topics)]
+    PP.append(doc_features_list)
     doc_count += 1
 
 PP = numpy.array(PP)
@@ -118,9 +120,9 @@ x = PP[:, 0]
 print "X: " + str(x.tolist())
 y = PP[:, 1]
 print "Y: " + str(y.tolist())
-z = PP[:, 2]
-print "Z: " + str(z.tolist())
-print "Dot product: " + str(numpy.dot(z.tolist(), y.tolist()))
+#z = PP[:, 2]
+#print "Z: " + str(z.tolist())
+print "Dot product: " + str(numpy.dot(x.tolist(), y.tolist()))
 n = ['d' + str(i) for i in range(1, doc_count + 1)]
 fig, ax = plt.subplots()
 ax.scatter(x, y)
