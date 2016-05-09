@@ -4,20 +4,46 @@ import matplotlib.pyplot as plt
 import re
 from numpy import linalg
 from sklearn.utils.extmath import randomized_svd
-from collections import Mapping, defaultdict
-from itertools import izip
 import MySQLdb
-from enum import Enum
 import sys
-import math
-import datetime
+from helpers import DataSourceType, Document, FactorizationAlgorithm
+from corpus import Corpus
+from svd_engine import SVDEngine
 
-from scipy.linalg.lapack import get_lapack_funcs
 
 try:
     from scipy.linalg.basic import triu
 except ImportError:
     from scipy.linalg.special_matrices import triu
+
+"""
+class SnapshotDbAdapter(object):
+    AVAILABLE_COLLECTION_NAMES = ['document_profiles', 'word_profiles']
+
+    def __init__(self, db_name):
+        self.client = MongoClient('localhost', 27017)
+        self.db_name = db_name
+        self.db = self.client[db_name]
+        logging.basicConfig(filename='snapshot_db_adapter.log', level=logging.DEBUG)
+
+    def initialize_collections(self):
+        for collection_name in self.AVAILABLE_COLLECTION_NAMES:
+            self.db[collection_name].create_index([('profile_id', pymongo.ASCENDING)], unique=True)
+
+    def save_or_update_all(self, collection_name, items):
+        collection = self.db[collection_name]
+        bulk = collection.initialize_ordered_bulk_op()
+
+        for item in items:
+            bulk.find({"profile_id": item["profile_id"]})\
+                .upsert().update_one(item)
+
+        try:
+            bulk.execute()
+        except BulkWriteError as bwe:
+            logging.debug("Time: " + str(datetime.datetime.now()) + "Db: " + self.db_name +
+                          " Collection: " + collection_name + " Detail: " + str(bwe.details))
+            return False
 
 
 class Document(object):
@@ -27,7 +53,7 @@ class Document(object):
 
 
 class SVDEngine(object):
-    def __init__(self, num_docs, num_words, num_features=2):
+    def __init__(self, num_docs, num_words, num_features=2, profile_db=None):
         self.min_iter = 1000
         self.max_iter = 3000
         self.num_docs = num_docs
@@ -40,6 +66,7 @@ class SVDEngine(object):
         self.min_improvement = 0.0001
         self.learning_rate = 0.002
         self.regul_factor = 0.02
+        self.profile_db = profile_db
 
     def predict_value(self, document_id, word_id):
         return numpy.dot(self.svd_u[document_id, :], self.svd_v[:, word_id])
@@ -95,36 +122,45 @@ class SVDEngine(object):
         self.svd_v = model['svd_v']
 
     def save_document_profile_batch(self, document_ids):
+        if self.profile_db is None:
+            return False
+
         document_profile_batch = []
         for document_id in document_ids:
             document_profile = {
-                'id': document_id,
+                'profile_id': document_id,
                 'features': self.svd_u[document_id, :],
                 'snapshot_time': datetime.datetime.utcnow()
             }
 
             document_profile_batch.append(document_profile)
 
-        self.profile_db.document_profiles.insert(document_profile_batch)
+        success = self.profile_db.save_or_udate_all('document_profiles', document_profile_batch)
+        return success
 
     def save_word_profile_batch(self, word_ids):
+        if self.profile_db is None:
+            return False
+
         word_profile_batch = []
         for word_id in word_ids:
             word_profile = {
-                'id': word_id,
+                'profile_id': word_id,
                 'features': self.svd_v[:, word_id],
                 'snapshot_time': datetime.datetime.utcnow()
             }
 
             word_profile_batch.append(word_profile)
 
-        self.profile_db.word_profiles.insert(word_profile_batch)
+        success = self.profile_db.save_or_udate_all('word_profiles', word_profile_batch)
+        return success
 
-    def load_document_profiles(self):
+    def load_document_profile_batch(self, document_ids):
         pass
 
-    def load_word_profiles(self):
+    def load_word_profiles_batch(self, word_ids):
         pass
+"""
 
 def svd_factorization(R, P, Q, K, steps=3000, alpha=0.002, beta=0.02):
     Q = Q.T
@@ -227,7 +263,7 @@ def iter_documents_db_table(db, sql):
         txt = paper_row[1]
         yield Document(id=document_id, tokens=tokenize(txt, lower=True))
 
-
+"""
 class Dictionary(Mapping):
     def __len__(self):
         return len(self.token_to_id)
@@ -367,6 +403,7 @@ class FactorizationAlgorithm(Enum):
     linear_svd = 2
     randomized_svd = 3
     gradient_descent_engine = 4
+"""
 
 def select_corpus(data_source_type):
     doc_count = 0
@@ -434,7 +471,7 @@ def select_factorization_algorithm(factorization_algo, corpus=None, doc_count=0,
 
 
 def run_factorization():
-    doc_count, corpus = select_corpus(DataSourceType.local_explicit_groups)
+    doc_count, corpus = select_corpus(DataSourceType.local_hci_graphs)
     print corpus.dictionary.items()
 
     PP, S, QQ = select_factorization_algorithm(FactorizationAlgorithm.gradient_descent_engine,
