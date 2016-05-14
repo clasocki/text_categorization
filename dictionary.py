@@ -6,10 +6,10 @@ class Dictionary(Mapping):
     def __len__(self):
         return len(self.token_to_id)
 
-    def __getitem__(self, key):
+    def __getitem__(self, token_id):
         if len(self.id_to_token) != len(self.token_to_id):
             self.id_to_token = dict((v, k) for k, v in self.token_to_id.iteritems())
-        return self.id_to_token[key]
+        return self.id_to_token[token_id]
 
     def keys(self):
         return list(self.token_to_id.values())

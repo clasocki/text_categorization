@@ -3,18 +3,24 @@ from tfidf import TfidfModel
 
 
 class Corpus(object):
-    def __init__(self, document_iterator, stop_words):
-        self.document_iterator = document_iterator
+    """
+
+    """
+    def __init__(self, document_generator, stop_words):
+        self.document_generator = document_generator
         self.stop_list = stop_words
-        self.dictionary = Dictionary(document_iterator())
+        self.dictionary = Dictionary(document_generator())
         self.tfidf_model = TfidfModel(self.dictionary)
         stop_ids = [self.dictionary.token_to_id[stop_word] for stop_word in self.stop_list
                     if stop_word in self.dictionary.token_to_id]
         once_ids = [token_id for token_id, doc_freq in self.dictionary.doc_freqs.iteritems() if doc_freq == 1]
         self.dictionary.filter_tokens(stop_ids + once_ids)
 
+    def add_documents(self, documents):
+        self.dictionary.add_documents(documents)
+
     def __iter__(self):
-        for document in self.document_iterator():
+        for document in self.document_generator():
             # yield self.dictionary.doc_to_bag_of_words(tokens)
             #yield doc_to_vec(len(self.dictionary.items()), self.dictionary.doc_to_bag_of_words(document))
             #yield doc_to_vec(len(self.dictionary.items()),

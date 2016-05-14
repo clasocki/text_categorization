@@ -23,8 +23,8 @@ class SnapshotDbAdapter(object):
         bulk = collection.initialize_ordered_bulk_op()
 
         for item in items:
-            bulk.find({"profile_id": item["profile_id"]})\
-                .upsert().update_one(item)
+            bulk.find({'profile_id': item['profile_id']})\
+                .upsert().update_one({'$set': item})
 
         try:
             bulk.execute()
@@ -32,3 +32,9 @@ class SnapshotDbAdapter(object):
             logging.debug("Time: " + str(datetime.datetime.now()) + "Db: " + self.db_name +
                           " Collection: " + collection_name + " Detail: " + str(bwe.details))
             return False
+
+    def find_all(self, collection_name, item_ids):
+        collection = self.db[collection_name]
+        profiles = collection.find({'profile_id': {'$in': item_ids}})
+
+        return profiles

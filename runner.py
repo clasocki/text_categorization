@@ -76,6 +76,74 @@ def select_corpus(data_source_type):
     return doc_count, corpus
 
 
+class LSIRunner(object):
+    def __init__(self):
+        self.db = MySQLdb.connect(host='localhost', user='sa',
+                                  passwd='1qaz@WSX', db='test')
+
+    def get_document_batch(self):
+        pass
+
+    def run(self):
+        pass
+
+
+class SemanticModel(object):
+    def __init__(self, num_features, file_name):
+        """
+        :param num_features: number of features inferred from the document set
+        :param file_name: the file used for the serialization
+        :return:
+        """
+        self.num_features = num_features
+        self.file_name = file_name
+
+    def infer_profiles(self, documents):
+        """
+        Calculates profiles for a new document
+        :param document:
+        :return:
+        """
+        pass
+
+
+    def update(self, batch):
+        """
+        Learning the model based on a new batch of documents
+        :param batch: a batch of documents
+        :return:
+        """
+        pass
+
+
+    def train(self):
+        """
+        Main loop that iterates over the db, periodically getting new document batches.
+        Starts using empty profile matrices, incrementally resizing them in the process of model training.
+        :return:
+        """
+        pass
+
+    def save(self):
+        """
+        Serializes the model to an external file.
+        The document profiles are automatically saved to the db during updates,
+        only remaining model part, i.e. word profile matrix, global statistics (e.g word counts) are serialized to an external file
+        :return:
+        """
+        pass
+
+    @staticmethod
+    def load(self, file_name):
+        """
+        :param self:
+        :param file_name: serialized model file name
+        :return: SemanticModel based on the serialized data
+        """
+        pass
+
+
+
 def select_factorization_algorithm(factorization_algo, corpus=None, doc_count=0, num_features=2):
     U, S, V = None, None, None
     if factorization_algo == FactorizationAlgorithm.linear_svd:
@@ -107,7 +175,7 @@ def select_factorization_algorithm(factorization_algo, corpus=None, doc_count=0,
     elif factorization_algo == FactorizationAlgorithm.gradient_descent_engine:
         svd_engine = SVDEngine(num_docs=doc_count, num_words=len(corpus.dictionary.items()), num_features=2)
         svd_engine.feature_training(corpus)
-        U, V = svd_engine.svd_u, svd_engine.svd_v
+        U, V = svd_engine.document_profiles, svd_engine.word_profiles
 
     return U, S, V
 
@@ -138,3 +206,16 @@ def draw_plot(PP, QQ, doc_count):
 
 
 run_factorization()
+
+
+if __module__ == '__main__':
+    file_name = 'semantic_model.snapshot'
+    """
+    """
+    # semantic_model = SemanticModel(num_features=2, file_name='semantic_model.snapshot')
+    # semantic_model.train()
+
+    document_batch = None
+    semantic_model = SemanticModel.load(file_name)
+    semantic_model.update(document_batch)
+
