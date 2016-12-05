@@ -1,0 +1,54 @@
+#log_format upstreamlog 'PROXY TO: $upstream_addr REQUEST: $request';
+
+server {
+    listen       81  default_server;        # this server uses port 81, not 80, because otherwise "default_server" and "merge_slashes off" couldn't be set
+    server_name  proxy.paperity.org;
+
+    # Nginx does not use the system DNS and requires a custom resolver here
+
+    resolver 8.8.8.8;
+
+    # Check referrer to prevent our proxy from being used by other sites
+    # Note that some browsers do not send any referrer, so it is better to allow 'none'
+
+    valid_referers none blocked server_names *.paperity.org;
+    if ($invalid_referer) {
+        return 403;
+    }
+
+    merge_slashes off;						# do NOT merge double slashes in URLs; this directive works only when the "default_server" above is specified
+
+    location ~* ^/download/(.*)$ {
+        #access_log  /var/log/nginx/access.log upstreamlog;
+        proxy_connect_timeout 75s;
+        proxy_read_timeout 120s;
+        proxy_send_timeout 120s;
+
+        # Proxy requests
+
+        proxy_pass $1$is_args$args;
+        #proxy_pass http://$1$is_args$args;
+
+        # If a redirect was received from the remote server, it's forwarded to the client 
+        # with an appropriate rewrite of the target location, to add proxy URL as a prefix
+
+        proxy_redirect ~(?<proto>https?)://(?<redirect_url>.*) /download/$proto%3A%2F%2F$redirect_url;
+        #proxy_redirect ~https?://(?<redirect_url>.*) /download/$redirect_url;
+
+        # If the Content-Disposition header is set to attachment, the browser
+        # will try to download the PDF. Remove this header from response
+
+        proxy_hide_header Content-Disposition;
+
+        # If the X-Frame-Options header is set to DENY or SAMEORIGIN, the browser
+        # won't allow embedding the pdf. Remove this header from response
+        
+        proxy_hide_header X-Frame-Options;
+
+        # Remove Content-Type header and re-add it as application/pdf
+        # to prevent people from using our server as a general purpose proxy
+
+        proxy_hide_header Content-Type;
+        add_header "Content-Type" "application/pdf"; #; charset=utf-8";
+    }
+}

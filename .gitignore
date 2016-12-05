@@ -1,0 +1,6 @@
+*.train
+*.npy
+*.mtrx
+*.snapshot
+*.tfidf
+*.lsi

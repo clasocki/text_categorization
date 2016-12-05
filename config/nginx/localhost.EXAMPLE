@@ -1,0 +1,13 @@
+server {
+    charset     utf-8;
+    client_max_body_size 75M;
+
+    location /static {
+        alias /home/paperity/src/paperity/app/static;
+    }
+
+    location / {
+        uwsgi_pass unix:///home/paperity/app/uwsgi.sock;
+        include     /etc/nginx/uwsgi_params;
+    }
+}

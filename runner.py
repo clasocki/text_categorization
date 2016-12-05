@@ -184,7 +184,7 @@ def run_factorization():
     doc_count, corpus = select_corpus(DataSourceType.local_hci_graphs)
     print corpus.dictionary.items()
 
-    PP, S, QQ = select_factorization_algorithm(FactorizationAlgorithm.gradient_descent_engine,
+    PP, S, QQ = select_factorization_algorithm(FactorizationAlgorithm.gradient_descent,
                                                corpus=corpus, doc_count=doc_count, num_features=2)
     draw_plot(PP, QQ, doc_count)
 
@@ -215,7 +215,8 @@ if __module__ == '__main__':
     # semantic_model = SemanticModel(num_features=2, file_name='semantic_model.snapshot')
     # semantic_model.train()
 
-    document_batch = None
-    semantic_model = SemanticModel.load(file_name)
-    semantic_model.update(document_batch)
+    run_factorization()
+    #document_batch = None
+    #semantic_model = SemanticModel.load(file_name)
+    #semantic_model.update(document_batch)
 

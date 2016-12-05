@@ -1,0 +1,43 @@
+server {
+    listen      80;
+    return      444;
+}
+
+server {
+    server_name  www.paperity.org;
+    return       301 http://paperity.org$request_uri;
+}
+
+server {
+    server_name paperity.org;
+    charset     utf-8;
+    client_max_body_size 75M;
+
+    location /static {
+        alias /home/paperity/src/paperity/app/static;
+        expires 1d;
+    }
+
+    location / {
+        uwsgi_pass unix:///home/paperity/app/uwsgi.sock;
+        include     /etc/nginx/uwsgi_params;
+    }
+}
+
+server {
+
+    # The development application is located in ~/dev. WATCH OUT: it shares ~/app and ~/data folders with the production app!
+
+    server_name dev.paperity.org
+    charset     utf-8;
+    client_max_body_size 75M;
+    
+    location /static {
+        alias /home/paperity/dev/paperity/app/static;
+    }
+
+    location / {
+        uwsgi_pass unix:///home/paperity/app/uwsgi_dev.sock;
+        include     /etc/nginx/uwsgi_params;
+    }
+}

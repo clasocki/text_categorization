@@ -1,0 +1,16 @@
+<!-- Add the following lines into solrconfig.xml between the <config> tags in order to enable MoreLikeThis Handler -->
+
+<requestHandler name="/mlt" class="solr.MoreLikeThisHandler">
+        <lst name="defaults">
+        <str name="mlt.fl">title,text</str>
+        <int name="mlt.mintf">2</int>
+        <int name="mlt.mindf">1</int>
+        <int name="mlt.minwl">3</int>
+        <int name="mlt.maxwl">1000</int>
+        <int name="mlt.maxqt">50</int>
+        <int name="mlt.maxntp">5000</int>
+        <bool name="mlt.boost">true</bool>
+        <str name="mlt.qf">title,text</str>
+        <str name="mlt.interestingTerms">details</str>
+        </lst>
+</requestHandler>
