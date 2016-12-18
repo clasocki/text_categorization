@@ -1,0 +1,30 @@
+def retrieve_rawtexts_by_id(srcfilename, destdir):
+    """
+    Extract 'rawtext' for all papers which ids are provided in the file srcfilename, each id kept in a separate line,
+    and save them to separate files in the provided directory: <destdir>/<pap_id>.txt
+    """
+
+    if not exists(destdir):
+        raise Exception("No such directory: '" + destdir + "'")        
+
+    paper_ids = []
+
+    f_ids = open(srcfilename, 'r')
+    for paper_id in f_ids:
+        paper_ids.append(paper_id)
+
+    f_ids.close()
+
+    papers = Paper.select("pid, rawtext", _where = "pid in (%s)" % ', '.join(paper_ids))
+
+    path = destdir + '/%s.txt'
+    for paper in papers:
+        f_name = path % paper.pid
+        f = open(f_name, 'w')
+        
+        print >>f, paper.rawtext.encode('utf-8')
+
+        f.close()
+
+def save_rawtexts_by_id(srcdir):
+    pass
