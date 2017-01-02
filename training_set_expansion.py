@@ -55,8 +55,9 @@ def assign_category(document, category, assigned_category_counter, newly_labeled
 	newly_labeled_documents.append(document)
 	document.learned_category = category
 
-	sql_update = "update pap_papers_view set learned_category = '" + str(category) + \
+	sql_update = "update pap_papers_2 set learned_category = '" + str(category) + \
 		"' WHERE id = " + str(document.id)
+	print document.title + " " + category
 
 	db.query(sql_update)
 
@@ -91,7 +92,7 @@ def propagate_labels(labeled_profiles, labels, acceptable_distance):
 
 			if average_distance <= acceptable_distance:
 				assign_category(unlabeled_document, closest_category, assigned_category_counter, newly_labeled_documents)
-
+				
 				if len(newly_labeled_documents) == NEW_LABELS_BATCH:
 					semantic_model.document_iterator.saveDocumentProfilesToDb(newly_labeled_documents)
 					semantic_model.update(newly_labeled_documents, num_iters_model_update=NUM_ITERS_MODEL_UPDATE,
@@ -120,7 +121,7 @@ def calculate_statistics(labeled_profiles):
 	mean, M2 = 0.0, 0.0
 	####
 
-	unlabeled_document_iterator = DocumentIterator(document_batch_size=DOCUMENT_BATCH_SIZE, where=UNLABELED_DOCUMENTS_CONDITION)
+	unlabeled_document_iterator = DocumentIterator(document_batch_size=DOCUMENT_BATCH_SIZE, db_window_size=2000, where=UNLABELED_DOCUMENTS_CONDITION)
 
 	all_distances = []
 
@@ -157,7 +158,7 @@ def calculate_statistics(labeled_profiles):
 if __name__ == "__main__":
 	labeled_profiles, labels = find_initial_label_set()
 
-	#mean, standard_deviation = calculate_statistics(labeled_profiles)
+	mean, standard_deviation = calculate_statistics(labeled_profiles)
 	#print mean, standard_deviation
-	#propagate_labels(labeled_profiles, labels, mean - standard_deviation)
-	propagate_labels(labeled_profiles, labels, 0.905576610851 - 0.258739991239)
+	propagate_labels(labeled_profiles, labels, mean - standard_deviation)
+	#propagate_labels(labeled_profiles, labels, 0.905576610851 - 0.258739991239)

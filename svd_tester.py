@@ -115,7 +115,7 @@ def print_clustering_results(original_labels, derived_labels):
 			f.write(str(clustering_class) + '\t' + str(decision_distr) + '\n')
 
 def perform_clustering(profiles, original_labels):
-	k_means = cluster.KMeans(n_clusters=3)
+	k_means = cluster.KMeans(n_clusters=50)
 	k_means.fit(profiles) 
 	
 	print_clustering_results(original_labels, k_means.labels_)
@@ -313,8 +313,11 @@ if __name__ == "__main__":
 	accuracy_result_filename = 'accuracy_result.csv'
 	model_snapshot_filename = 'semantic_model.snapshot'
 	num_features = 50
+	
 	"""
 	semantic_model = SemanticModel.load(model_snapshot_filename, where="published = 1 and learned_category is not null")
+	"""
+	"""
 	semantic_model.tester = lambda epoch: test_accuracy(semantic_model, db, epoch, accuracy_result_filename)
 	"""
 	#semantic_model.tester(10)
@@ -322,8 +325,8 @@ if __name__ == "__main__":
 	
 	
 	semantic_model = SemanticModel(num_features=num_features, file_name=model_snapshot_filename, 
-												  where="published = 1 and learned_category is not null", min_df=0.002, max_df=0.5,
-												  tester = lambda epoch: test_accuracy(semantic_model, db, epoch, accuracy_result_filename))
+												  where="published = 1 and learned_category is not null", min_df=0.015, max_df=0.4)
+												  #tester = lambda epoch: test_accuracy(semantic_model, db, epoch, accuracy_result_filename))
 	
 	try:
 		"""

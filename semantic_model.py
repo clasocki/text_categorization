@@ -49,7 +49,7 @@ class DocumentIterator(object):
             "LIMIT " + str(self.DOCUMENT_BATCH_SIZE)
 
         #query = "SELECT * FROM pap_papers_view WHERE published = 1 AND is_test = 1"
-        print query
+        #print query
         #document_batch = db.select(query)
         document_batch = Paper.selectRaw(query)    
 
@@ -113,7 +113,7 @@ class DocumentIterator(object):
             document_profile = document.profile
             str_document_profile = ','.join(str(profile_element) for profile_element in document_profile)
 
-            sql_update = "UPDATE pap_papers_view SET profile = '" + \
+            sql_update = "UPDATE pap_papers_3 SET profile = '" + \
                 str_document_profile + \
                 "' WHERE id = " + str(db_document_id)
 
@@ -240,7 +240,7 @@ class SemanticModel(object):
             #rmse = numpy.sqrt(squared_error / num_values)
             #print "Partial RMSE: " + str(rmse)
             #print "Num operations: " + str(num_operations)
-        print "End - time: " + str(time.time() - start_time)
+        print "Infer profiles: " + str(time.time() - start_time)
 
     def calculateError(self, documents):
         squared_error = 0.0
@@ -296,6 +296,8 @@ class SemanticModel(object):
 
         processed_tokens = set()
         for token in document.tokenized_text:
+            if len(token) > 100:
+                continue
             if token not in self.token_to_id:
                 self.token_to_id[token] = len(self.token_to_id)
                 self.active_tokens.add(self.token_to_id[token])
@@ -488,28 +490,30 @@ class SemanticModel(object):
             self.current_document_batch = document_batch
 
             self.inferProfiles(document_batch)                 
-
+            
+            start_time = time.time()
             self.save()
+
+            print "Save: " + str(time.time() - start_time)
             
             print "Current iteration: " + str(epoch)
-            print "Total num iter: " + str(num_iter)
 
             if epoch % 35 == 0 and epoch != 0:
                 if self.tester:
                     self.tester(epoch)
-            
+            """
             if epoch % 35 == 0 and epoch != 0:
                 all_documents = self.document_iterator.getAll()
                 converted_all_documents = self.convertDocuments(all_documents)
                 print "Total RMSE: " + str(self.calculateError(converted_all_documents))
-
+            """
                 
             epoch += 1
 
             if num_iter is not None and epoch >= num_iter:
                 break
 
-    def save(self):
+    def save_old(self):
         """
         Serializes the model to an external file.
         The document profiles are automatically saved to the db during updates,
@@ -539,6 +543,41 @@ class SemanticModel(object):
 
                 f.write(word_stats_line)
 
+    def save(self):
+        if self.current_document_batch is not None:
+            self.document_iterator.saveDocumentProfilesToDb(self.current_document_batch)
+
+        with open(self.file_name, 'w') as f:
+            """
+            TODO: add ALL model parameters to the first line
+            """
+            f.write(str(self.num_features) + '\t' + str(len(self.token_to_id)) + '\t' + str(self.num_docs) + '\t' + \
+                str(self.min_df) + '\t' + str(self.max_df) + '\n')
+
+        current = 0
+
+        sql_insert = "INSERT INTO pap_words (word, df, is_active, profile) VALUES "
+        sql_update = " ON DUPLICATE KEY UPDATE df = VALUES(df), is_active = VALUES(is_active), profile = VALUES(profile)"
+
+        sql_tuples = []
+
+        for token, local_token_id in self.token_to_id.iteritems():
+            df = self.doc_freqs[local_token_id]
+            is_active = int(local_token_id in self.active_tokens)
+            profile = ','.join(str(profile_element) for profile_element in self.word_profiles[:, local_token_id])
+
+            sql_tuples.append("('{0}', {1}, {2}, '{3}')".format(token, df, is_active, profile))
+
+            current += 1
+            if current % 10000 == 0:
+                print current
+                db.query(sql_insert + ','.join(sql_tuples) + sql_update)
+                db.commit()
+                sql_tuples = []
+
+        if len(sql_tuples) > 0:
+            db.query(sql_insert + ','.join(sql_tuples) + sql_update)
+            db.commit()
 
     def saveJson(self):
         model_data = dict()
@@ -554,7 +593,7 @@ class SemanticModel(object):
         model_data['doc_freqs'] = doc_freqs
 
         with open(self.file_name, 'w') as fp:
-            json.dump(model_data, fp) 
+            json.dump(model_data, fp)
 
     @staticmethod
     def load(file_name, where):
@@ -566,7 +605,7 @@ class SemanticModel(object):
         semantic_model = None
 
         with open(file_name, 'r') as f:
-            snapshot_reader = SemanticModelSnapshotReader(f)
+            snapshot_reader = SemanticModelSnapshotReader(f, db)
 
             num_features, num_words, num_docs, min_df, max_df = snapshot_reader.readGeneralStats()
 
@@ -609,9 +648,11 @@ class SemanticModel(object):
 
 
 class SemanticModelSnapshotReader(object):
-    def __init__(self, file_object):
+    def __init__(self, file_object, db, word_profiles_in_db=True):
         self.file_object = file_object
+        self.db = db
         self.first_line_read = False
+        self.word_profiles_in_db = word_profiles_in_db
 
     def readGeneralStats(self):
         if self.first_line_read:
@@ -632,6 +673,12 @@ class SemanticModelSnapshotReader(object):
         return num_features, num_words, num_docs, min_df, max_df
 
     def readWordProfiles(self):
+        profile_generator = self.readWordProfilesFromDb if self.word_profiles_in_db else self.readWordProfilesFromFile
+        
+        for result in profile_generator():
+            yield result
+
+    def readWordProfilesFromFile(self):
         if not self.first_line_read:
             self.readGeneralStats()
 
@@ -641,6 +688,21 @@ class SemanticModelSnapshotReader(object):
             word_doc_freqs = int(split_word_stats[1])
             is_active = bool(int(split_word_stats[2]))
             word_profile = split_word_stats[3]
+            word_profile = numpy.asarray([float(value) for value in word_profile.split(',')])
+
+            yield token, word_doc_freqs, is_active, word_profile
+
+    def readWordProfilesFromDb(self):
+        if not self.first_line_read:
+            self.readGeneralStats()
+
+        sql = "SELECT word, df, is_active, profile FROM pap_words"
+
+        for word_stats in db.select(sql):
+            token = word_stats['word']
+            word_doc_freqs = int(word_stats['df'])
+            is_active = ord(word_stats['is_active'])
+            word_profile = word_stats['profile']
             word_profile = numpy.asarray([float(value) for value in word_profile.split(',')])
 
             yield token, word_doc_freqs, is_active, word_profile
@@ -665,6 +727,14 @@ class SemanticModelSnapshotReader(object):
             if i == 0:
                 break
 
+    def showWordFrequencies(self):
+        import matplotlib.pyplot as plt
+
+        freqs = [freq for token, freq, is_active, profile in self.readWordProfiles()]
+        print freqs
+        plt.yscale('log', nonposy='clip')
+        plt.hist(freqs, bins=range(500))
+        plt.show()
 
 if __name__ == "__main__":
     file_name = 'semantic_model.snapshot'
@@ -700,9 +770,10 @@ if __name__ == "__main__":
         #semantic_model.train()
 
         with open(file_name, 'r') as f:
-            snapshot_reader = SemanticModelSnapshotReader(f)
+            snapshot_reader = SemanticModelSnapshotReader(f, db)
             #print snapshot_reader.readGeneralStats()
-            snapshot_reader.printOrderedWordProfiles(order='asc', min_freq=0, max_freq=sys.maxint, only_active=True)
+            #snapshot_reader.printOrderedWordProfiles(order='desc', min_freq=0, max_freq=sys.maxint, only_active=True)
+            snapshot_reader.showWordFrequencies()
     except (KeyboardInterrupt, SystemExit):
         #semantic_model.save()
         print "Saved"
