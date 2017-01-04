@@ -211,7 +211,7 @@ def plot_confusion_matrix(cm, classes,
     plt.xlabel('Predicted label')
 
 def classify(train_set, train_labels, test_set, test_labels):
-	rfClf = RandomForestClassifier(n_estimators=3000)
+	rfClf = RandomForestClassifier(n_estimators=100)
 	nghClf = KNeighborsClassifier(n_neighbors=10)
 
 	print "Fitting random forest..."
@@ -316,17 +316,16 @@ if __name__ == "__main__":
 	
 	"""
 	semantic_model = SemanticModel.load(model_snapshot_filename, where="published = 1 and learned_category is not null")
-	"""
-	"""
-	semantic_model.tester = lambda epoch: test_accuracy(semantic_model, db, epoch, accuracy_result_filename)
-	"""
-	#semantic_model.tester(10)
 	
+	
+	semantic_model.tester = lambda epoch: test_accuracy(semantic_model, db, epoch, accuracy_result_filename)
+	semantic_model.tester(10)
+	"""
 	
 	
 	semantic_model = SemanticModel(num_features=num_features, file_name=model_snapshot_filename, 
-												  where="published = 1 and learned_category is not null", min_df=0.015, max_df=0.4)
-												  #tester = lambda epoch: test_accuracy(semantic_model, db, epoch, accuracy_result_filename))
+								   where="published = 1 and learned_category is not null", min_df=0.002, max_df=0.5,
+								   tester = lambda epoch: test_accuracy(semantic_model, db, epoch, accuracy_result_filename))
 	
 	try:
 		"""
