@@ -335,7 +335,7 @@ if __name__ == "__main__":
 		semantic_model.train()
 		pass
 	except (KeyboardInterrupt, SystemExit):
-		semantic_model.save()
+		semantic_model.save(save_words=True)
 		print "Saved"
 		raise
 	finally:
