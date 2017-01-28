@@ -98,9 +98,7 @@ class DocumentIterator(object):
 
         return all_documents
 
-    def saveDocumentProfilesToFile(self, file_name):
-        all_documents = self.getAll()
-        
+    def saveDocumentProfilesToFile(self, documents, file_name):
         with open(file_name, 'w') as f:
             for document in all_documents:
                 str_doc_profile = str(document.id) + '\t'
@@ -113,8 +111,8 @@ class DocumentIterator(object):
             document_profile = document.profile
             str_document_profile = ','.join(str(profile_element) for profile_element in document_profile)
 
-            #sql_update = "UPDATE pap_papers_3 SET profile = '" + \
-            sql_update = "UPDATE pap_papers_view SET profile = '" + \
+            #sql_update = "UPDATE pap_papers_view SET profile = '" + \
+            sql_update = "UPDATE pap_papers_3 SET profile = '" + \
                 str_document_profile + \
                 "' WHERE id = " + str(db_document_id)
 
@@ -133,7 +131,7 @@ class DocumentIterator(object):
                 document.tokenized_text = tokenize(document.rawtext).split()
                 document.profile = numpy.asarray(document.profile)
 
-            yield document_batch
+            yield [doc for doc in document_batch if len(doc.tokenized_text) > 0]
 
 class TermFrequencyWeight(Enum):
     RAW_FREQUENCY = 1
@@ -149,7 +147,7 @@ class SemanticModel(object):
     def __init__(self, num_features, file_name, where,
         term_freq_weight=TermFrequencyWeight.LOG_NORMALIZATION, use_idf = True,
         min_df=0.0, max_df=1.0, limit_features=True,
-        preanalyze_documents=True, tester=None):
+        preanalyze_documents=True, tester=None, save_frequency=30, test_frequency=30):
         """
         :param num_features: number of features inferred from the document set
         :param file_name: the file used for the serialization
@@ -172,6 +170,8 @@ class SemanticModel(object):
         self.limit_features = limit_features
         self.preanalyze_documents = preanalyze_documents
         self.tester = tester
+        self.save_frequency = save_frequency
+        self.test_frequency = test_frequency
 
         self.word_profiles = numpy.random.uniform(low=-0.01, high=0.01, size=(1, self.num_features))
         self.document_iterator = DocumentIterator(where=where)
@@ -191,17 +191,22 @@ class SemanticModel(object):
         :param documents: a list of unconverted documents
         :return:
         """    
-        documents = self.convertDocuments(documents)
 
-        if initialize_document_profiles:
-            self.initializeDocumentProfiles(documents)  
+        start_time = time.time()
+
+        documents = self.convertDocuments(documents, initialize_document_profiles)
+        if num_iters > 1:
+            documents = list(documents)
+
+        #if initialize_document_profiles:
+        #    self.initializeDocumentProfiles(documents)  
 
         current_iter = 0
 
-        if len(documents) == 0:
-            return
+        #if len(documents) == 0:
+        #    return
 
-        start_time = time.time()
+        
 
         for current_iter in range(num_iters):
             squared_error = 0.0
@@ -262,7 +267,7 @@ class SemanticModel(object):
 
         return rmse
 
-    def update(self, documents, num_iters_model_update, num_iters_profile_inference=None):
+    def update(self, documents, num_iters):
         """
         Updates the model based on a new batch of documents
         Profile matrices are resized if after the update the number of documents or words 
@@ -287,7 +292,9 @@ class SemanticModel(object):
         
         self.save(save_words=True)
 
-        self.train(num_iters_model_update)
+        self.train(num_iters)
+
+        self.save(save_words=True)
  
 
     def predictValue(self, document, word_id):
@@ -326,9 +333,12 @@ class SemanticModel(object):
         self.updated_word_ids.update(xrange(num_tokens_before_update, num_new_tokens))
         #self.compactify(added_ids=range(tokens_before_update, num_new_tokens), removed_ids=[])
 
+    def initializeDocumentProfile(self, document):
+        document.profile = numpy.random.uniform(low=-0.01, high=0.01, size=self.num_features)
+
     def initializeDocumentProfiles(self, documents):
         for document in documents:
-            document.profile = numpy.random.uniform(low=-0.01, high=0.01, size=self.num_features)
+            self.initializeDocumentProfile(document)
 
     def tf(self, bag_of_words, token_id):
         raw_frequency = bag_of_words[token_id]    
@@ -368,7 +378,7 @@ class SemanticModel(object):
 
         self.token_to_id = dict((token, id_map[token_id]) for token, token_id in self.token_to_id.iteritems())
         self.id_to_token = dict((id_map[token_id], token) for token_id, token in self.id_to_token.iteritems())
-        self.doc_freqs = dict((id_map[token_id], freq) for token_id, freq in self.doc_freqs.iteritems())
+        self.doc_freqs = defaultdict(int, ((id_map[token_id], freq) for token_id, freq in self.doc_freqs.iteritems()))
         self.updated_word_ids = set(id_map[token_id] for token_id in self.updated_word_ids)
 
         for token_id in active_tokens_without_removed:
@@ -419,7 +429,7 @@ class SemanticModel(object):
 
         return kept_ids, added_ids, removed_ids
 
-    def convertDocuments(self, documents):
+    def convertDocuments(self, documents, initialize_document_profiles):
         """
         Tokenizes and converts each document from the raw text form to the bag-of-words format
         :param documents:
@@ -447,7 +457,12 @@ class SemanticModel(object):
 
             document.converted_text = converted_text
 
-        return documents
+            if initialize_document_profiles:
+                self.initializeDocumentProfile(document)  
+
+            yield document
+
+        #return documents
 
     def fullDictionaryBasedDocument(self, document, active_tokens_sample=None):
         """
@@ -564,13 +579,13 @@ class SemanticModel(object):
             self.inferProfiles(document_batch)                 
             
             start_time = time.time()
-            self.save(save_words=(epoch % 30 == 0 and epoch != 0))
+            self.save(save_words=(epoch % self.save_frequency == 0 and epoch != 0))
 
             print "Save: " + str(time.time() - start_time)
             
             print "Current iteration: " + str(epoch)
 
-            if epoch % 30 == 0 and epoch != 0:
+            if epoch % self.test_frequency == 0 and epoch != 0:
                 if self.tester:
                     self.tester(epoch)
             """
@@ -715,16 +730,16 @@ class SemanticModel(object):
             for token, word_doc_freqs, is_active, word_profile in snapshot_reader.readWordProfiles():
                 if is_active:
                     semantic_model.token_to_id[token] = len(semantic_model.token_to_id) 
-                    semantic_model.id_to_token[self.token_to_id[token]] = token               
+                    semantic_model.id_to_token[semantic_model.token_to_id[token]] = token               
                     semantic_model.doc_freqs[semantic_model.token_to_id[token]] = word_doc_freqs
-                    semantic_model.word_profiles[:, semantic_model.token_to_id[token]] = word_profile
+                    semantic_model.word_profiles[semantic_model.token_to_id[token], :] = word_profile
                 else:
                     inactive_words.append((token, word_doc_freqs))
             
             #process inactive words
             for token, word_doc_freqs in inactive_words:
                 semantic_model.token_to_id[token] = len(semantic_model.token_to_id)                
-                semantic_model.id_to_token[self.token_to_id[token]] = token
+                semantic_model.id_to_token[semantic_model.token_to_id[token]] = token
                 semantic_model.doc_freqs[semantic_model.token_to_id[token]] = word_doc_freqs    
 
         return semantic_model
@@ -757,6 +772,15 @@ class SemanticModelSnapshotReader(object):
         self.first_line_read = False
         self.word_profiles_in_db = word_profiles_in_db
 
+    def isint(self, x):
+        try:
+            a = float(x)
+            b = int(a)
+        except ValueError:
+            return False
+        else:
+            return a == b
+
     def readGeneralStats(self):
         if self.first_line_read:
             self.file_object.seek(0)
@@ -769,8 +793,10 @@ class SemanticModelSnapshotReader(object):
         num_words = int(first_line_stats[1])
         num_active_words = int(first_line_stats[2])
         num_docs = int(first_line_stats[3])
-        min_df = float(first_line_stats[4])
-        max_df = float(first_line_stats[5])
+        min_df_str = first_line_stats[4]
+        max_df_str = first_line_stats[5]
+        min_df = int(min_df_str) if self.isint(min_df_str) else float(min_df_str)
+        max_df = int(max_df_str) if self.isint(max_df_str) else float(max_df_str)
 
         self.first_line_read  = True
 
@@ -809,8 +835,11 @@ class SemanticModelSnapshotReader(object):
             token = word_stats['word']
             word_doc_freqs = int(word_stats['df'])
             is_active = ord(word_stats['is_active'])
-            word_profile = word_stats['profile']
-            word_profile = numpy.asarray([float(value) for value in word_profile.split(',')])
+            if is_active:
+                word_profile = word_stats['profile']
+                word_profile = numpy.asarray([float(value) for value in word_profile.split(',')])
+            else:
+                word_profile = None
 
             yield token, word_doc_freqs, is_active, word_profile
 

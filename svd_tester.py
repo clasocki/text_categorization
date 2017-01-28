@@ -230,23 +230,25 @@ def classify(train_set, train_labels, test_set, test_labels):
 
 
 def test_accuracy(semantic_model, db, current_epoch, result_filename):
-	unlabeled_document_iterator = DocumentIterator(where="published = 1 and learned_category is null")
-	#unlabeled_document_iterator = DocumentIterator(where="published = 1 and is_test = 1")
+	#unlabeled_document_iterator = DocumentIterator(where="published = 1 and learned_category is null")
+	#unlabeled_document_iterator = DocumentIterator(where="published = 1 and year is null")
 	#document_iterator.saveDocumentProfilesToFile(file_name='document_profiles.train')   
 
 	
-	unlabeled_documents = unlabeled_document_iterator.getAll()
+	#unlabeled_documents = unlabeled_document_iterator.getAll()
 	
-	semantic_model.inferProfiles(unlabeled_documents, update_word_profiles=False, num_iters=5, initialize_document_profiles=True)
-	unlabeled_document_iterator.saveDocumentProfilesToDb(unlabeled_documents)
+	#semantic_model.inferProfiles(unlabeled_documents, update_word_profiles=False, num_iters=10, initialize_document_profiles=True)
+	#unlabeled_document_iterator.saveDocumentProfilesToDb(unlabeled_documents)
 	
 
-	train_profiles, train_original_labels, train_rawtexts = get_documents(db, where="published = 1 and profile is not null and learned_category is not null", num_features=semantic_model.num_features)
-	test_profiles, test_original_labels, test_rawtexts = get_documents(db, where="published = 1 and profile is not null and learned_category is null", num_features=semantic_model.num_features)
+	#train_profiles, train_original_labels, train_rawtexts = get_documents(db, where="published = 1 and profile is not null and learned_category is not null", num_features=semantic_model.num_features)
+	#test_profiles, test_original_labels, test_rawtexts = get_documents(db, where="published = 1 and profile is not null and learned_category is null", num_features=semantic_model.num_features)
 	
-	#train_profiles, train_original_labels, train_rawtexts = get_documents(db, where="published = 1 and is_test = 0", num_features=semantic_model.num_features)
-	#test_profiles, test_original_labels, test_rawtexts = get_documents(db, where="published = 1 and is_test = 1", num_features=semantic_model.num_features)
+	#train_profiles, train_original_labels, train_rawtexts = get_documents(db, where="published = 1 and learned_category is not null and year is not null", num_features=semantic_model.num_features)
+	#test_profiles, test_original_labels, test_rawtexts = get_documents(db, where="published = 1 and learned_category is not null and year is null", num_features=semantic_model.num_features)
 
+	train_profiles, train_original_labels, train_rawtexts = get_documents(db, where="published = 1 and is_test = 0", num_features=50)
+	test_profiles, test_original_labels, test_rawtexts = get_documents(db, where="published = 1 and is_test = 1", num_features=50)
 	
 	db.commit()
 
@@ -254,9 +256,11 @@ def test_accuracy(semantic_model, db, current_epoch, result_filename):
 	test_set_target = labels_text_to_id(test_original_labels)
 	#print test_profiles[10:]
 	
-	#train_tokenized_texts = [tokenize(rawtext).split() for rawtext in train_rawtexts]
-	#test_tokenized_texts = [tokenize(rawtext).split() for rawtext in test_rawtexts]
-	#train_profiles, test_profiles = gensim_tests.inferProfiles(train_tokenized_texts, test_tokenized_texts)
+	train_tokenized_texts = [tokenize(rawtext).split() for rawtext in train_rawtexts]
+	test_tokenized_texts = [tokenize(rawtext).split() for rawtext in test_rawtexts]
+	semantic_model = gensim_tests.SemanticModel.build(train_tokenized_texts, 50, 0.002 * len(train_tokenized_texts), 0.5 * len(train_tokenized_texts))
+	train_profiles = semantic_model.inferProfiles(train_tokenized_texts)
+	test_profiles = semantic_model.inferProfiles(test_tokenized_texts)
 
 	train_set = train_profiles
 	test_set = test_profiles
@@ -316,26 +320,30 @@ if __name__ == "__main__":
 	
 	"""
 	semantic_model = SemanticModel.load(model_snapshot_filename, where="published = 1 and learned_category is not null")
-	
+
 	
 	semantic_model.tester = lambda epoch: test_accuracy(semantic_model, db, epoch, accuracy_result_filename)
 	semantic_model.tester(10)
 	"""
 	
+	test_accuracy(None, db, 10, accuracy_result_filename)
+
 	
+	"""
 	semantic_model = SemanticModel(num_features=num_features, file_name=model_snapshot_filename, 
-								   where="published = 1 and learned_category is not null", min_df=0.002, max_df=0.5,
-								   tester = lambda epoch: test_accuracy(semantic_model, db, epoch, accuracy_result_filename))
-	
+								   where="published = 1 and learned_category is not null", min_df=20, max_df=0.33)
+								   #where="published = 1 and learned_category is not null", min_df=0.002, max_df=0.33)
+								   #tester = lambda epoch: test_accuracy(semantic_model, db, epoch, accuracy_result_filename))
+	"""
 	try:
 		"""
 		import cProfile
 		cProfile.run('semantic_model.train()')
 		"""
-		semantic_model.train()
+		#semantic_model.train()
 		pass
 	except (KeyboardInterrupt, SystemExit):
-		semantic_model.save(save_words=True)
+		#semantic_model.save(save_words=True)
 		print "Saved"
 		raise
 	finally:

@@ -14,7 +14,7 @@ documents = ["Human machine interface for lab abc computer applications",
              "The generation of random binary unordered trees",
              "The intersection graph of paths in trees",
              "Graph minors IV Widths of trees and well quasi ordering",
-             "Graph minors A survey"]
+             "Graph minors A survey", ""]
 
 additional_documents_trees = [
     "Trees are special cases of graphs so whatever works for a general graph works for trees",
@@ -87,7 +87,7 @@ print "Korpus BOW:"
 for vector in corpus:
     print vector
 
-corpora.MmCorpus.serialize('tmp/corpus.mm', corpus)
+#corpora.MmCorpus.serialize('tmp/corpus.mm', corpus)
 
 tfidf = models.TfidfModel(corpus)
 corpus_tfidf = tfidf[corpus]
@@ -115,6 +115,15 @@ for doc in corpus_lsi: # both bow->tfidf and tfidf->lsi transformations are actu
     PP.append(doc_features_list)
     doc_count += 1
 
+print "---------------"
+
+for doc in documents:
+    text_bow = corpus.dictionary.doc2bow(doc.lower().split())
+    text_tfidf = tfidf[text_bow]
+    profile = lsi[text_tfidf]
+    print profile
+
+"""
 PP = numpy.array(PP)
 x = PP[:, 0]
 print "X: " + str(x.tolist())
@@ -133,7 +142,7 @@ plt.show()
 lsi.save('tmp/model.lsi')
 #lsi = models.LsiModel.load('tmp/model.lsi')
 
-"""
+
 
 doc = "Human computer interaction"
 vec_bow = corpus.dictionary.doc2bow(doc.lower().split())

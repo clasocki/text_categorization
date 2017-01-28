@@ -1,38 +1,45 @@
 from gensim import corpora, models
+import itertools
 
-def createDictionary(tokenized_texts):
-	document_count = len(tokenized_texts)
-	new_dictionary = corpora.Dictionary(tokenized_text for tokenized_text in tokenized_texts)
-	rare_ids = [tokenid for tokenid, docfreq in new_dictionary.dfs.iteritems() 
-				if docfreq < 0.003 * document_count or docfreq > 0.7 * document_count]
-	new_dictionary.filter_tokens(rare_ids)
-	new_dictionary.compactify()
+class SemanticModel(object):
+	def __init__(self):
+		self.lsi = None
+		self.tfidf = None
+		self.dic = None
 
-	return new_dictionary
+	def createDictionary(self, tokenized_texts, min_df, max_df):
+		new_dictionary = corpora.Dictionary(tokenized_texts)
+		rare_ids = [tokenid for tokenid, docfreq in new_dictionary.dfs.iteritems() 
+					if docfreq < min_df or docfreq > max_df]
+		new_dictionary.filter_tokens(rare_ids)
+		new_dictionary.compactify()
 
-def inferProfiles(train_tokenized_texts, test_tokenized_texts):
-	dic = createDictionary(train_tokenized_texts)
+		return new_dictionary
 
-	corpus = [dic.doc2bow(tokenized_text) for tokenized_text in train_tokenized_texts]
+	@staticmethod
+	def build(tokenized_texts, num_features, min_df, max_df):
+		model = SemanticModel()
 
-	tfidf = models.TfidfModel(corpus)
-	corpus_tfidf = tfidf[corpus]
+		text_it1, text_it2 = itertools.tee(tokenized_texts, 2)
 
-	lsi = models.LsiModel(corpus_tfidf, num_topics=20, id2word=dic)
-	#lsiBOW = models.LsiModel(corpus, num_topics=NUM_TOP, id2word=dic)
-	corpus_lsi = lsi[corpus_tfidf]
+		model.dic = model.createDictionary(text_it1, min_df, max_df)
+		corpus = [model.dic.doc2bow(tokenized_text) for tokenized_text in text_it2]
 
-	train_profiles = []
-	for train_document, profile in zip(train_tokenized_texts, corpus_lsi):
-		train_profiles.append([feature[1] for feature in profile])
+		model.tfidf = models.TfidfModel(corpus)
+		corpus_tfidf = model.tfidf[corpus]
 
-	test_profiles = []
-	for test_tokenized_text in test_tokenized_texts:
-		test_document_bow = dic.doc2bow(test_tokenized_text)
-		test_document_tfif = tfidf[test_document_bow]
-		test_document_profile = lsi[test_document_tfif]
-		test_profiles.append([feature[1] for feature in test_document_profile])
+		model.lsi = models.LsiModel(corpus_tfidf, num_topics=num_features, id2word=model.dic)
+		#lsiBOW = models.LsiModel(corpus, num_topics=NUM_TOP, id2word=dic)
+		#corpus_lsi = lsi[corpus_tfidf]
 
-	return train_profiles, test_profiles
+		return model
 
+	def inferProfile(self, tokenized_text):
+		text_bow = self.dic.doc2bow(tokenized_text)
+		text_tfidf = self.tfidf[text_bow]
+		profile = self.lsi[text_tfidf]
+	
+		return [feature_val for feature_id, feature_val in profile]
 
+	def inferProfiles(self, tokenized_texts):
+		return [self.inferProfile(text) for text in tokenized_texts]
