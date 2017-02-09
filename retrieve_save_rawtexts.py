@@ -89,7 +89,8 @@ def save_rawtexts_by_id(rawtext_dirname, paper_list_filename):
             print i
             paper_id = paper_row[3]
             paper_title = paper_row[2].replace("'", "''").decode('utf-8')
-            paper_category = paper_row[0] + "," + paper_row[1]
+            #paper_category = paper_row[0] + "," + paper_row[1]
+            paper_category = paper_row[0]
             rawtext_filename = '%s/%s.txt' % (rawtext_dirname, paper_id)
             
             if exists(rawtext_filename):
@@ -122,7 +123,7 @@ if __name__ == "__main__":
     rawtext_dirname = "/home/cezary/Documents/MGR/rawtexts"
     paper_list_filename = "/home/cezary/Documents/MGR/discipline_allocation.csv"
 
-    #save_rawtexts_by_id(rawtext_dirname, paper_list_filename)
+    save_rawtexts_by_id(rawtext_dirname, paper_list_filename)
 
     dirname = '/home/cezary/Documents/MGR/backups/'
-    compare_category_allocation(dirname + 'labeled_iterative.csv', dirname + 'labeled_gensim.csv', dirname + 'same_categories.csv', dirname + 'diff_categories.csv')
+    #compare_category_allocation(dirname + 'labeled_iterative.csv', dirname + 'labeled_gensim.csv', dirname + 'same_categories.csv', dirname + 'diff_categories.csv')

@@ -112,7 +112,7 @@ class DocumentIterator(object):
             str_document_profile = ','.join(str(profile_element) for profile_element in document_profile)
 
             #sql_update = "UPDATE pap_papers_view SET profile = '" + \
-            sql_update = "UPDATE pap_papers_3 SET profile = '" + \
+            sql_update = "UPDATE pap_papers_view SET profile = '" + \
                 str_document_profile + \
                 "' WHERE id = " + str(db_document_id)
 
@@ -142,12 +142,12 @@ class TermFrequencyWeight(Enum):
 class SemanticModel(object):
     MAX_UPDATE_ITER = 1
     REGULARIZATION_FACTOR = 0.00
-    LEARNING_RATE = 0.005
+    LEARNING_RATE = 0.001
 
     def __init__(self, num_features, file_name, where,
         term_freq_weight=TermFrequencyWeight.LOG_NORMALIZATION, use_idf = True,
         min_df=0.0, max_df=1.0, limit_features=True,
-        preanalyze_documents=True, tester=None, save_frequency=30, test_frequency=30):
+        preanalyze_documents=True, tester=None, save_frequency=40, test_frequency=40):
         """
         :param num_features: number of features inferred from the document set
         :param file_name: the file used for the serialization
@@ -194,7 +194,10 @@ class SemanticModel(object):
 
         start_time = time.time()
 
-        documents = self.convertDocuments(documents, initialize_document_profiles)
+        if initialize_document_profiles:
+            documents = self.initializeDocumentProfiles(documents)  
+
+        documents = self.convertDocuments(documents)
         if num_iters > 1:
             documents = list(documents)
 
@@ -250,7 +253,9 @@ class SemanticModel(object):
             #rmse = numpy.sqrt(squared_error / num_values)
             #print "Partial RMSE: " + str(rmse)
             #print "Num operations: " + str(num_operations)
-        print "Infer profiles: " + str(time.time() - start_time)
+        #print "Infer profiles: " + str(time.time() - start_time)
+
+        return (document.profile for document in documents)
 
     def calculateError(self, documents):
         squared_error = 0.0
@@ -336,9 +341,11 @@ class SemanticModel(object):
     def initializeDocumentProfile(self, document):
         document.profile = numpy.random.uniform(low=-0.01, high=0.01, size=self.num_features)
 
+        return document
+
     def initializeDocumentProfiles(self, documents):
         for document in documents:
-            self.initializeDocumentProfile(document)
+            yield self.initializeDocumentProfile(document)
 
     def tf(self, bag_of_words, token_id):
         raw_frequency = bag_of_words[token_id]    
@@ -429,14 +436,13 @@ class SemanticModel(object):
 
         return kept_ids, added_ids, removed_ids
 
-    def convertDocuments(self, documents, initialize_document_profiles):
+    def convertDocuments(self, documents):
         """
         Tokenizes and converts each document from the raw text form to the bag-of-words format
         :param documents:
         :return: list of documents in the bag-of-words format with a local id assigned
         """
         for document in documents:
-            document_id = document.id
             tokenized_text = document.tokenized_text
 
             bag_of_words = defaultdict(int)
@@ -456,9 +462,6 @@ class SemanticModel(object):
                 converted_text[token_id] = token_weight
 
             document.converted_text = converted_text
-
-            if initialize_document_profiles:
-                self.initializeDocumentProfile(document)  
 
             yield document
 
@@ -564,7 +567,7 @@ class SemanticModel(object):
         if self.preanalyze_documents:
             all_documents = self.document_iterator.getAll()
             self.current_document_batch = all_documents
-            self.initializeDocumentProfiles(all_documents)
+            all_documents = self.initializeDocumentProfiles(all_documents)
             self.updateStatisticsForNewDocuments(all_documents)
             kept_indices, added_indices, removed_indices = self.limit_words()
             print "Kept: " + str(len(kept_indices)) + ", added: " + str(len(added_indices)) + ", removed: " + str(len(removed_indices))
@@ -576,18 +579,21 @@ class SemanticModel(object):
         for document_batch in self.document_iterator:
             self.current_document_batch = document_batch
 
-            self.inferProfiles(document_batch)                 
+            start_time = time.time()
+            self.inferProfiles(document_batch)
+            inference_time = time.time() - start_time
             
             start_time = time.time()
             self.save(save_words=(epoch % self.save_frequency == 0 and epoch != 0))
+            saving_time = time.time() - start_time
 
-            print "Save: " + str(time.time() - start_time)
-            
-            print "Current iteration: " + str(epoch)
+            print "Iter: %s, Save: %s, Infer: %s" % (str(epoch), str(saving_time), str(inference_time))
 
             if epoch % self.test_frequency == 0 and epoch != 0:
                 if self.tester:
+                    start_time = time.time()
                     self.tester(epoch)
+                    print "Test: " + str(time.time() - start_time)        
             """
             if epoch % 35 == 0 and epoch != 0:
                 all_documents = self.document_iterator.getAll()

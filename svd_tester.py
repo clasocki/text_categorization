@@ -17,6 +17,8 @@ import matplotlib.pyplot as plt
 from semantic_model import SemanticModel, DocumentIterator
 import datetime
 from sklearn.ensemble import RandomForestClassifier
+from training_set_expansion import getLabeledSetGensim, LocalDocumentGenerator, find_closest_category
+import time
 
 rootdir = '/home/cezary/Documents/MGR/20news-bydate/'
 rootdir_test = rootdir + '20news-bydate-test'
@@ -120,40 +122,27 @@ def perform_clustering(profiles, original_labels):
 	
 	print_clustering_results(original_labels, k_means.labels_)
 
-categories_ = ['alt.atheism', 'soc.religion.christian', 
-			   'comp.graphics', 'sci.med', 'hci', 'graphs',
-			   'simple1', 'simple2', 'comp.windows.x',
-			   'rec.sport.hockey', 'sci.electronics',
-			   'talk.politics.misc']
-categories = dict()
-
-def labels_text_to_id(labels):
-	for label in labels:
-		if label not in categories:
-			categories[label] = len(categories)
-
-	return [categories[label] for label in labels]
-
-def calculate_classification_accuracy(train_set, train_set_target, test_set, test_set_target):
-	neigh = NearestNeighbors(n_neighbors=15, metric='euclidean')
+def calculate_classification_accuracy(train_set, train_set_target, test_set, semantic_model):
+	neigh = NearestNeighbors(n_neighbors=15, algorithm='brute', metric='cosine')
 	neigh.fit(train_set)
-
-	dists, indices = neigh.kneighbors(test_set)
+	rfClf = RandomForestClassifier(n_estimators=100)
+	rfClf.fit(train_set, train_set_target)
 
 	predicted = []
+	test_set_target = []
 	correctly_classified = 0
-	for ind, test_target in zip(indices, test_set_target):
-		classified_targets = [train_set_target[i] for i in ind]
-		count = Counter(classified_targets)
-		freq_list = count.values()
-		total_most_common = freq_list.count(max(freq_list))
-		most_common = count.most_common(total_most_common)
-		most_common = [elem[0] for elem in most_common]
+	for test_elem, test_target in test_set:
+		#test_profiles = semantic_model.inferProfiles([test_elem])
+		test_profiles = semantic_model.inferProfiles([test_elem], initialize_document_profiles=True, num_iters=10, update_word_profiles=False)
+		#dists, indices = neigh.kneighbors([test_profile])
+		#prediction, _ = find_closest_category(train_set_target, dists[0], indices[0])
+		#print next(test_profiles)
+		prediction = rfClf.predict(list(test_profiles))[0]
 
-		predicted.append(most_common[0])
-
-		#print "Target: " + str(test_target) + ", indices: " + str(classified_targets) + ", Most common: " + str(most_common)
-		if test_target in most_common:
+		predicted.append(prediction)
+		test_set_target.append(test_target)
+		
+		if test_target == prediction:
 			correctly_classified += 1
 
 	accuracy = str(float(correctly_classified) / len(test_set))
@@ -210,21 +199,21 @@ def plot_confusion_matrix(cm, classes,
     plt.ylabel('True label')
     plt.xlabel('Predicted label')
 
-def classify(train_set, train_labels, test_set, test_labels):
+def classify(train_set, train_labels, test_set):
 	rfClf = RandomForestClassifier(n_estimators=100)
 	nghClf = KNeighborsClassifier(n_neighbors=10)
 
 	print "Fitting random forest..."
 	rfClf.fit(train_set, train_labels)
 
-	rfScore = rfClf.score(test_set, test_labels)
+	rfScore = rfClf.score(test_samples, true_labels)
 
 	print "Random forest score: " + str(rfScore)
 
 	print "Fitting k nearest neighbors...."
 	nghClf.fit(train_set, train_labels)
 
-	nghScore = nghClf.score(test_set, test_labels)
+	nghScore = nghClf.score(test_samples, true_labels)
 
 	print "Nearest neighbors score: " + str(nghScore)
 
@@ -247,6 +236,7 @@ def test_accuracy(semantic_model, db, current_epoch, result_filename):
 	#train_profiles, train_original_labels, train_rawtexts = get_documents(db, where="published = 1 and learned_category is not null and year is not null", num_features=semantic_model.num_features)
 	#test_profiles, test_original_labels, test_rawtexts = get_documents(db, where="published = 1 and learned_category is not null and year is null", num_features=semantic_model.num_features)
 
+	"""
 	train_profiles, train_original_labels, train_rawtexts = get_documents(db, where="published = 1 and is_test = 0", num_features=50)
 	test_profiles, test_original_labels, test_rawtexts = get_documents(db, where="published = 1 and is_test = 1", num_features=50)
 	
@@ -264,7 +254,7 @@ def test_accuracy(semantic_model, db, current_epoch, result_filename):
 
 	train_set = train_profiles
 	test_set = test_profiles
-
+	"""
 	"""
 
 	profiles = train_profiles
@@ -279,8 +269,32 @@ def test_accuracy(semantic_model, db, current_epoch, result_filename):
 	print "Score: " + str(text_clf.score(test_set, test_set_target))
 	"""
 
-	y_test, y_pred = calculate_classification_accuracy(train_set, train_set_target, test_set, test_set_target)
-	class_names = categories
+	#iterative
+	
+	query = "SELECT profile, category FROM pap_papers_view WHERE published = 1 and profile is not null and learned_category is not null"
+	labeled_profiles, labels = [], []
+
+	rowmapper = lambda row: (numpy.asarray([float(value) for value in row['profile'].split(',')]), row['category'])
+	with LocalDocumentGenerator(query, rowmapper) as labeled_documents:
+		for profile, label in labeled_documents:
+			labeled_profiles.append(profile)
+			labels.append(label)
+	
+	#gensim
+
+	#labeled_profiles, labels, semantic_model = getLabeledSetGensim(num_features=50)
+
+	class Doc:
+		def __init__(self, tokenized_text):
+			self.tokenized_text = tokenized_text
+
+	query = "SELECT rawtext, category FROM pap_papers_view where published = 1 and learned_category is null"
+	rowmapper = lambda row: (Doc(tokenize(row['rawtext']).split()), row['category'])
+	#rowmapper = lambda row: (tokenize(row['rawtext']).split(), row['category'])
+	y_test, y_pred = [], []
+	with LocalDocumentGenerator(query, rowmapper) as unlabeled_documents:
+		y_test, y_pred = calculate_classification_accuracy(labeled_profiles, labels, unlabeled_documents, semantic_model)
+		#classify(labeled_profiles, labels, unlabeled_documents)
  
 	# Compute confusion matrix
 	cnf_matrix = confusion_matrix(y_test, y_pred)
@@ -291,8 +305,6 @@ def test_accuracy(semantic_model, db, current_epoch, result_filename):
 		results.write(",".join(map(str, cnf_matrix_diag)) + "," + str(accuracy) + "\n")
 
 	numpy.set_printoptions(precision=2)
-
-	classify(train_set, train_set_target, test_set, test_set_target)
 
 	# Plot non-normalized confusion matrix
 	#plt.figure()
@@ -306,6 +318,9 @@ def test_accuracy(semantic_model, db, current_epoch, result_filename):
 
 	#plt.show()
 
+def testAccuracyGensim():
+	pass
+
 if __name__ == "__main__":
 	db = MySQLdb.connect(host='localhost', user='root',
                          passwd='1qaz@WSX', db='test')
@@ -318,33 +333,32 @@ if __name__ == "__main__":
 	model_snapshot_filename = 'semantic_model.snapshot'
 	num_features = 50
 	
-	"""
-	semantic_model = SemanticModel.load(model_snapshot_filename, where="published = 1 and learned_category is not null")
+	
+	#semantic_model = SemanticModel.load(model_snapshot_filename, where="published = 1 and learned_category is not null")
+	#semantic_model.tester = lambda epoch: test_accuracy(semantic_model, db, epoch, accuracy_result_filename)
+	#semantic_model.tester(10)
+	
+	start_time = time.time()
+	#test_accuracy(None, db, 10, accuracy_result_filename)
 
 	
-	semantic_model.tester = lambda epoch: test_accuracy(semantic_model, db, epoch, accuracy_result_filename)
-	semantic_model.tester(10)
-	"""
 	
-	test_accuracy(None, db, 10, accuracy_result_filename)
-
-	
-	"""
 	semantic_model = SemanticModel(num_features=num_features, file_name=model_snapshot_filename, 
-								   where="published = 1 and learned_category is not null", min_df=20, max_df=0.33)
-								   #where="published = 1 and learned_category is not null", min_df=0.002, max_df=0.33)
-								   #tester = lambda epoch: test_accuracy(semantic_model, db, epoch, accuracy_result_filename))
-	"""
+								   #where="published = 1 and learned_category is not null", min_df=20, max_df=0.33)
+								   where="published = 1 and learned_category is not null", min_df=0.002, max_df=0.33,
+								   tester = lambda epoch: test_accuracy(semantic_model, db, epoch, accuracy_result_filename))
+	
 	try:
 		"""
 		import cProfile
 		cProfile.run('semantic_model.train()')
 		"""
-		#semantic_model.train()
+		semantic_model.train()
 		pass
 	except (KeyboardInterrupt, SystemExit):
-		#semantic_model.save(save_words=True)
+		semantic_model.save(save_words=True)
 		print "Saved"
 		raise
 	finally:
+		print "Training total time: " + str(time.time() - start_time)
 		db.close()

@@ -10,7 +10,7 @@ import gensim_tests
 from nifty.text import tokenize
 import itertools
 
-from svd_tester import test_accuracy
+#from svd_tester import test_accuracy
 import MySQLdb
 
 LABELED_DOCUMENTS_CONDITION = "published = 1 AND learned_category IS NOT NULL"
@@ -23,7 +23,7 @@ acceptable_distance = 1.0
 MODEL_SNAPSHOT_FILENAME = 'semantic_model.snapshot'
 NUM_ITERS_MODEL_UPDATE = 30
 DOCUMENT_BATCH_SIZE = 1000
-DB_WINDOW_SIZE = 800
+DB_WINDOW_SIZE = 1000
 
 def find_most_common_label(labels):
 	count = Counter(labels)
@@ -59,7 +59,7 @@ def assign_category(document, category, assigned_category_counter, newly_labeled
 	newly_labeled_documents.append(document)
 	document.learned_category = category
 
-	sql_update = "update pap_papers_2 set learned_category = '" + str(category) + \
+	sql_update = "update pap_papers_view set learned_category = '" + str(category) + \
 		"' WHERE id = " + str(document.id)
 	#print document.title + " " + category
 
@@ -223,34 +223,48 @@ def calcDistancesGensim(labeled_profiles, semantic_model, unlabeled_document_bat
 	return pairwise_distances(labeled_profiles, profiles, metric='cosine')
 
 class LocalDocumentGenerator(object):
-	def __init__(self, cursor):
-		self.cursor = cursor
+	def __init__(self, query, rowmapper):
+		self.query = query
+		self.rowmapper = rowmapper
 
 	def __iter__(self):
 		for row in self.cursor:
-			tokenized_text = tokenize(row[0]).split()
-			label = row[1]
-			if len(tokenized_text) > 0:
-				yield tokenized_text, label
+			yield self.rowmapper(row)
+
+	def __enter__(self):
+		self.db = MySQLdb.connect(host='localhost', user='root', passwd='1qaz@WSX', db='test')
+		self.cursor = db.cursor(MySQLdb.cursors.DictCursor)
+		self.cursor.execute(self.query)
+		return self	
+
+	def __exit__(self, type, value, tb):
+		self.cursor.close()
+		self.db.close()
+
+	def __len__(self):
+		return self.cursor.rowcount
+
+def docRowMapper(row):
+	tokenized_text = tokenize(row['rawtext']).split()
+	label = row['learned_category']
+	
+	return tokenized_text, label
+
 
 def getLabeledSetGensim(num_features):
-	db = MySQLdb.connect(host='localhost', user='root', passwd='1qaz@WSX', db='paperity')
-	cursor = db.cursor()
-	cursor.execute("SELECT rawtext, learned_category FROM pap_papers_view where %s" % (LABELED_DOCUMENTS_CONDITION,))
-	labeled_docs = LocalDocumentGenerator(cursor)
+	sql_query = "SELECT rawtext, learned_category FROM pap_papers_view where %s" % (LABELED_DOCUMENTS_CONDITION,)
 
-	semantic_model = gensim_tests.SemanticModel.build((text for text, _ in labeled_docs), num_features, 0.002 * cursor.rowcount, 0.33 * cursor.rowcount)
-	
-	labeled_profiles, labels = [], []
+	labeled_profiles, labels, semantic_model = [], [], None
+	with LocalDocumentGenerator(sql_query, docRowMapper) as labeled_docs:
+		semantic_model = gensim_tests.SemanticModel.build((text for text, _ in labeled_docs if text), num_features, 
+			0.002 * len(labeled_docs), 0.33 * len(labeled_docs))
 
-	for text, label in labeled_docs:
-		profile = semantic_model.inferProfile(text)
-		if len(profile) > 0:
-			labeled_profiles.append(profile)
-			labels.append(label)
-
-	cursor.close()
-	db.close()
+		for text, label in labeled_docs:
+			if text:
+				profile = semantic_model.inferProfile(text)
+				if profile:
+					labeled_profiles.append(profile)
+					labels.append(label)
 
 	return labeled_profiles, labels, semantic_model
 
@@ -272,9 +286,9 @@ if __name__ == "__main__":
 		num_features = 50
 		labeled_profiles, labels, semantic_model = getLabeledSetGensim(num_features)
 		print "Len labeled: ", len(labeled_profiles) 		
-		#mean, standard_deviation = calculate_statistics(labeled_profiles, semantic_model, calcDistancesGensim)
-		#print mean, standard_deviation
-		mean, standard_deviation = 0.853455089498, 0.166213023676
+		mean, standard_deviation = calculate_statistics(labeled_profiles, semantic_model, calcDistancesGensim)
+		print mean, standard_deviation
+		#mean, standard_deviation = 0.853455089498, 0.166213023676
 		acceptable_distance = mean - standard_deviation
 
 		propagate_labels_gensim(labeled_profiles, labels, acceptable_distance, num_features, semantic_model, calcDistancesGensim)
