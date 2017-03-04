@@ -232,7 +232,7 @@ class LocalDocumentGenerator(object):
 			yield self.rowmapper(row)
 
 	def __enter__(self):
-		self.db = MySQLdb.connect(host='localhost', user='root', passwd='1qaz@WSX', db='test')
+		self.db = MySQLdb.connect(host='127.0.0.1', user='root', passwd='1qaz@WSX', db='test')
 		self.cursor = db.cursor(MySQLdb.cursors.DictCursor)
 		self.cursor.execute(self.query)
 		return self	
@@ -253,6 +253,7 @@ def docRowMapper(row):
 
 def getLabeledSetGensim(num_features):
 	sql_query = "SELECT rawtext, learned_category FROM pap_papers_view where %s" % (LABELED_DOCUMENTS_CONDITION,)
+	print sql_query
 
 	labeled_profiles, labels, semantic_model = [], [], None
 	with LocalDocumentGenerator(sql_query, docRowMapper) as labeled_docs:

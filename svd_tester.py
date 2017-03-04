@@ -20,7 +20,7 @@ from sklearn.ensemble import RandomForestClassifier
 from training_set_expansion import getLabeledSetGensim, LocalDocumentGenerator, find_closest_category
 import time
 
-rootdir = '/home/cezary/Documents/MGR/20news-bydate/'
+rootdir = '/home/clasocki/20news-bydate/'
 rootdir_test = rootdir + '20news-bydate-test'
 rootdir_train = rootdir + '20news-bydate-train'
 
@@ -48,21 +48,22 @@ def insert_all(db, rootdir, is_test):
 						rawtext = f_obj.readlines()
 
 						num_lines = 0
-						for l in lines:
+						for l in rawtext:
 							if l.startswith('Lines:'):
 								num_lines = int(l[len('Lines: '):])
+								break
 
 						rawtext = rawtext[-num_lines:]
 						rawtext = ''.join(rawtext)
 						rawtext = rawtext.replace("'", "''")
 						print rawtext[:20]
-						query = "INSERT INTO documents(rawtext, category, is_test, file_name) VALUES('" + \
+						query = "INSERT INTO pap_papers_view(rawtext, category, is_test, file_name) VALUES('" + \
 							rawtext + "', '" + category + "', " + str(is_test) + ", " + str(f) + ")"
 
 						cursor.execute(query)
 						db.commit()
 				except:
-					print sys.exc_info()[0]
+					print sys.exc_info()
 					errors.append(path)
 
 	finally:
@@ -122,6 +123,7 @@ def perform_clustering(profiles, original_labels):
 	
 	print_clustering_results(original_labels, k_means.labels_)
 
+#@profile
 def calculate_classification_accuracy(train_set, train_set_target, test_set, semantic_model):
 	neigh = NearestNeighbors(n_neighbors=15, algorithm='brute', metric='cosine')
 	neigh.fit(train_set)
@@ -131,21 +133,30 @@ def calculate_classification_accuracy(train_set, train_set_target, test_set, sem
 	predicted = []
 	test_set_target = []
 	correctly_classified = 0
+	all_classified = 0
 	for test_elem, test_target in test_set:
 		#test_profiles = semantic_model.inferProfiles([test_elem])
-		test_profiles = semantic_model.inferProfiles([test_elem], initialize_document_profiles=True, num_iters=10, update_word_profiles=False)
+                test_profiles = semantic_model.inferProfiles([test_elem], initialize_document_profiles=True, num_iters=10, update_word_profiles=False)
+		test_profiles = list(test_profiles)
 		#dists, indices = neigh.kneighbors([test_profile])
 		#prediction, _ = find_closest_category(train_set_target, dists[0], indices[0])
 		#print next(test_profiles)
-		prediction = rfClf.predict(list(test_profiles))[0]
-
-		predicted.append(prediction)
-		test_set_target.append(test_target)
+		#print test_target
+		#print len(list(test_profiles)[0]) > 0, file_name, test_target
+                test_profile = test_profiles[0]
+                #print test_profile
+		if len(test_profile) > 0:
+			prediction = rfClf.predict(test_profiles)[0]
+			
+                        predicted.append(prediction)
+			test_set_target.append(test_target)
 		
-		if test_target == prediction:
-			correctly_classified += 1
+			if test_target == prediction:
+				correctly_classified += 1
+			
+			all_classified += 1
 
-	accuracy = str(float(correctly_classified) / len(test_set))
+	accuracy = str(float(correctly_classified) / all_classified)
 	print "Classification accuracy: " + accuracy
 	print "Accuracy score: " + str(accuracy_score(test_set_target, predicted))
 
@@ -217,7 +228,7 @@ def classify(train_set, train_labels, test_set):
 
 	print "Nearest neighbors score: " + str(nghScore)
 
-
+#@profile
 def test_accuracy(semantic_model, db, current_epoch, result_filename):
 	#unlabeled_document_iterator = DocumentIterator(where="published = 1 and learned_category is null")
 	#unlabeled_document_iterator = DocumentIterator(where="published = 1 and year is null")
@@ -271,10 +282,10 @@ def test_accuracy(semantic_model, db, current_epoch, result_filename):
 
 	#iterative
 	
-	query = "SELECT profile, category FROM pap_papers_view WHERE published = 1 and profile is not null and learned_category is not null"
+	query = "SELECT profile, learned_category FROM pap_papers_view WHERE published = 1 and profile is not null and learned_category is not null"
 	labeled_profiles, labels = [], []
 
-	rowmapper = lambda row: (numpy.asarray([float(value) for value in row['profile'].split(',')]), row['category'])
+	rowmapper = lambda row: (numpy.asarray([float(value) for value in row['profile'].split(',')]), row['learned_category'])
 	with LocalDocumentGenerator(query, rowmapper) as labeled_documents:
 		for profile, label in labeled_documents:
 			labeled_profiles.append(profile)
@@ -283,7 +294,7 @@ def test_accuracy(semantic_model, db, current_epoch, result_filename):
 	#gensim
 
 	#labeled_profiles, labels, semantic_model = getLabeledSetGensim(num_features=50)
-
+	#print labeled_profiles, labels
 	class Doc:
 		def __init__(self, tokenized_text):
 			self.tokenized_text = tokenized_text
@@ -322,13 +333,13 @@ def testAccuracyGensim():
 	pass
 
 if __name__ == "__main__":
-	db = MySQLdb.connect(host='localhost', user='root',
+	db = MySQLdb.connect(host='127.0.0.1', user='root',
                          passwd='1qaz@WSX', db='test')
 
 	#insert_all(db, rootdir_test, 1)
 	#insert_all(db, rootdir_train, 0)
 
-	
+		
 	accuracy_result_filename = 'accuracy_result.csv'
 	model_snapshot_filename = 'semantic_model.snapshot'
 	num_features = 50
@@ -339,6 +350,9 @@ if __name__ == "__main__":
 	#semantic_model.tester(10)
 	
 	start_time = time.time()
+	
+	#import cProfile
+	#cProfile.run('test_accuracy(None, db, 10, accuracy_result_filename)', 'teststats')
 	#test_accuracy(None, db, 10, accuracy_result_filename)
 
 	
@@ -347,18 +361,22 @@ if __name__ == "__main__":
 								   #where="published = 1 and learned_category is not null", min_df=20, max_df=0.33)
 								   where="published = 1 and learned_category is not null", min_df=0.002, max_df=0.33,
 								   tester = lambda epoch: test_accuracy(semantic_model, db, epoch, accuracy_result_filename))
-	
+	import cProfile
+	pr = cProfile.Profile()
+	pr.enable()
+
 	try:
-		"""
-		import cProfile
-		cProfile.run('semantic_model.train()')
-		"""
 		semantic_model.train()
+		#cProfile.run('semantic_model.train()', 'teststats')
 		pass
 	except (KeyboardInterrupt, SystemExit):
 		semantic_model.save(save_words=True)
 		print "Saved"
 		raise
 	finally:
+		pr.disable()
+		pr.dump_stats('teststats1')
+
 		print "Training total time: " + str(time.time() - start_time)
 		db.close()
+	

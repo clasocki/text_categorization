@@ -97,20 +97,23 @@ def save_rawtexts_by_id(rawtext_dirname, paper_list_filename):
                 rawtext_file = open(rawtext_filename, 'r')
                 paper_rawtext = rawtext_file.read().replace("'", "''").decode('utf-8')
                 rawtext_file.close()
-                db_row_count = db.select("SELECT COUNT(1) FROM pap_papers_view WHERE id = " + str(paper_id))[0]['COUNT(1)']
+                db_row_count = db.select("SELECT COUNT(1) FROM pap_papers_view WHERE pid = " + str(paper_id))[0]['COUNT(1)']
                 
                 sql1 = ""
                 sql2 = ""
                 sql3 = ""
 
                 if db_row_count > 0:
-                    sql1 = "update pap_papers_1 set published = 1 where id = %s" % (paper_id, )
-                    sql2 = "update pap_papers_2 set title = '%s', learned_category = '%s' where id = %s" % (paper_title, paper_category, paper_id)
-                    sql3 = "update pap_papers_3 set rawtext = '%s' where id = %s" % (paper_rawtext, paper_id)
+                    sql1 = "update pap_papers_1 set published = 1 where pid = %s" % (paper_id, )
+                    sql2 = "update pap_papers_2 p2 left outer join pap_papers_1 p1 on p1.id = p2.id "
+                    sql2 += "set p2.title = '%s', p2.learned_category = '%s' where p1.pid = %s" % (paper_title, paper_category, paper_id)
+                    sql3 = "update pap_papers_3 p3 left outer join pap_papers_1 p1 on p1.id = p3.id "
+                    sql3 += "set p3.rawtext = '%s' where p1.pid = %s" % (paper_rawtext, paper_id)
                 else:
-                    sql1 = "insert into pap_papers_1(id,journal_id,published) values(%s, 1001, 1)" % (paper_id,)
-                    sql2 = "insert into pap_papers_2(id,title,learned_category) values(%s, '%s', '%s')" % (paper_id, paper_title, paper_category)
-                    sql3 = "insert into pap_papers_3(id,rawtext) values(%s, '%s')" % (paper_id, paper_rawtext)
+                    new_id = int(db.select("select max(id) from pap_papers_1")[0]['max(id)']) + 1
+                    sql1 = "insert into pap_papers_1(id, pid,journal_id,published) values(%s, %s, 1001, 1)" % (new_id, paper_id,)
+                    sql2 = "insert into pap_papers_2(id, title,learned_category) values(%s, '%s', '%s')" % (new_id, paper_title, paper_category)
+                    sql3 = "insert into pap_papers_3(id, rawtext) values(%s, '%s')" % (new_id, paper_rawtext)
                 #print sql
                 
                 db.query(sql1)
@@ -120,8 +123,8 @@ def save_rawtexts_by_id(rawtext_dirname, paper_list_filename):
     db.commit()
 
 if __name__ == "__main__":
-    rawtext_dirname = "/home/cezary/Documents/MGR/rawtexts"
-    paper_list_filename = "/home/cezary/Documents/MGR/discipline_allocation.csv"
+    rawtext_dirname = "/home/clasocki/rawtexts"
+    paper_list_filename = "/home/clasocki/discipline_allocation.csv"
 
     save_rawtexts_by_id(rawtext_dirname, paper_list_filename)
 
