@@ -112,8 +112,8 @@ class DocumentIterator(object):
             document_profile = document.profile
             str_document_profile = ','.join(str(profile_element) for profile_element in document_profile)
 
-            #sql_update = "UPDATE pap_papers_3 SET profile = '" + \
-            sql_update = "UPDATE pap_papers_view SET profile = '" + \
+            #sql_update = "UPDATE pap_papers_view SET profile = '" + \
+            sql_update = "UPDATE pap_papers_3 SET profile = '" + \
                 str_document_profile + \
                 "' WHERE id = " + str(db_document_id)
 
@@ -161,6 +161,8 @@ def updateDocProfile(profile, learning_rate, error, word_profiles, word_id, regu
 def numbaInferProfile(word_id, weight, document_profile, word_profiles, learning_rate, regul_factor, update_word_profiles):
     predicted_value = numpy.dot(document_profile, word_profiles[word_id, :])
     error = 1.0 * weight - predicted_value
+    if numpy.isnan(error):
+        print word_id
 
     document_profile += \
         learning_rate * (error * word_profiles[word_id, :] - regul_factor * document_profile) 
@@ -266,7 +268,9 @@ class SemanticModel(object):
             #        for id_weight_pair in document.full_converted_text):
             
             for document in documents:
-                for word_id, weight in document.full_converted_text:     
+                for word_id, weight in document.full_converted_text:
+                    print self.word_profiles[word_id, :], self.id_to_token[word_id], document.profile, document.id, document.pid
+ 
                     numbaInferProfile(word_id, weight, document.profile, self.word_profiles, self.LEARNING_RATE, self.REGULARIZATION_FACTOR, update_word_profiles)
                     if update_word_profiles:
                         addToUpdatedWordIds(word_id)

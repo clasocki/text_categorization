@@ -17,8 +17,9 @@ import matplotlib.pyplot as plt
 from semantic_model import SemanticModel, DocumentIterator
 import datetime
 from sklearn.ensemble import RandomForestClassifier
-from training_set_expansion import getLabeledSetGensim, LocalDocumentGenerator, find_closest_category
+from training_set_expansion import getLabeledSetGensim, LocalDocumentGenerator
 import time
+from sklearn.multiclass import OneVsRestClassifier
 
 rootdir = '/home/clasocki/20news-bydate/'
 rootdir_test = rootdir + '20news-bydate-test'
@@ -124,13 +125,13 @@ def perform_clustering(profiles, original_labels):
 	print_clustering_results(original_labels, k_means.labels_)
 
 #@profile
-def calculate_classification_accuracy(train_set, train_set_target, test_set, semantic_model):
+def calculate_classification_accuracy(train_set, train_set_target, test_set, semantic_model, num_labels=3):
 	neigh = NearestNeighbors(n_neighbors=15, algorithm='brute', metric='cosine')
 	neigh.fit(train_set)
-	rfClf = RandomForestClassifier(n_estimators=100)
+	rfClf = RandomForestClassifier(n_estimators=80)
 	rfClf.fit(train_set, train_set_target)
 
-	predicted = []
+        predicted = []
 	test_set_target = []
 	correctly_classified = 0
 	all_classified = 0
@@ -147,7 +148,8 @@ def calculate_classification_accuracy(train_set, train_set_target, test_set, sem
                 #print test_profile
 		if len(test_profile) > 0:
 			prediction = rfClf.predict(test_profiles)[0]
-			
+                        #predictions = predictions.argpartition(num_labels)[:num_labels]
+
                         predicted.append(prediction)
 			test_set_target.append(test_target)
 		
@@ -158,7 +160,7 @@ def calculate_classification_accuracy(train_set, train_set_target, test_set, sem
 
 	accuracy = str(float(correctly_classified) / all_classified)
 	print "Classification accuracy: " + accuracy
-	print "Accuracy score: " + str(accuracy_score(test_set_target, predicted))
+	#print "Accuracy score: " + str(accuracy_score(test_set_target, predicted))
 
 	return test_set_target, predicted
 
@@ -356,15 +358,16 @@ if __name__ == "__main__":
 	#test_accuracy(None, db, 10, accuracy_result_filename)
 
 	
-	
+        	
 	semantic_model = SemanticModel(num_features=num_features, file_name=model_snapshot_filename, 
 								   #where="published = 1 and learned_category is not null", min_df=20, max_df=0.33)
-								   where="published = 1 and learned_category is not null", min_df=0.002, max_df=0.33,
-								   tester = lambda epoch: test_accuracy(semantic_model, db, epoch, accuracy_result_filename))
-	import cProfile
-	pr = cProfile.Profile()
-	pr.enable()
-
+								   where="published = 1 and learned_category is not null", min_df=0.002, max_df=0.33)
+								   #tester = lambda epoch: test_accuracy(semantic_model, db, epoch, accuracy_result_filename))
+	
+	#import cProfile
+	#pr = cProfile.Profile()
+	#pr.enable()
+        
 	try:
 		semantic_model.train()
 		#cProfile.run('semantic_model.train()', 'teststats')
@@ -374,9 +377,10 @@ if __name__ == "__main__":
 		print "Saved"
 		raise
 	finally:
+                """
 		pr.disable()
 		pr.dump_stats('teststats1')
-
+                """
 		print "Training total time: " + str(time.time() - start_time)
 		db.close()
 	

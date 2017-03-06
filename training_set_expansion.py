@@ -9,7 +9,7 @@ from random import randint
 import gensim_tests
 from nifty.text import tokenize
 import itertools
-
+import sys
 #from svd_tester import test_accuracy
 import MySQLdb
 
@@ -21,10 +21,12 @@ NEW_LABELS_BATCH = 1000
 FINAL_DOCUMENT_COUNT = 50000
 acceptable_distance = 1.0
 MODEL_SNAPSHOT_FILENAME = 'semantic_model.snapshot'
-NUM_ITERS_MODEL_UPDATE = 30
+NUM_ITERS_MODEL_UPDATE = 50
 DOCUMENT_BATCH_SIZE = 1000
 DB_WINDOW_SIZE = 1000
+N_OUTPUT_LABELS = 2
 
+"""
 def find_most_common_label(labels):
 	count = Counter(labels)
 	freq_list = count.values()
@@ -34,6 +36,14 @@ def find_most_common_label(labels):
 
 	idx = randint(0, len(most_common) - 1)
 	return most_common[idx]
+"""
+
+def find_most_common_labels(labels, n):
+	flatten = lambda l: [item for sublist in l for item in sublist]
+	labels = flatten(labels)
+	counter = Counter(labels)
+	most_common_labels = [elem[0] for elem in counter.most_common(n) if elem[1] > 0.33 * len(labels)]
+	return most_common_labels
 
 def get_labeled_set():
 	labeled_documents = DocumentIterator(where=LABELED_DOCUMENTS_CONDITION).getAll()
@@ -47,19 +57,22 @@ def get_labeled_set():
 
 	return labeled_profiles, labels
 
-def find_closest_category(categories, distances, indices):
-	closest_categories = [categories[i] for i in indices]
-	closest_category = find_most_common_label(closest_categories)
-	closest_category_indices = [i for i, category in enumerate(closest_categories) if category == closest_category]
+def find_closest_categories(all_categories, distances, n):
+	closest_categories = find_most_common_labels(all_categories, n)
+        if len(closest_categories) == 0:
+		return [], sys.maxint 
+
+	closest_category_indices = [i for i, categories in enumerate(all_categories) if any(category in categories for category in closest_categories)]
+        if len(closest_category_indices) == 0:
+		print all_categories, closest_categories
 	average_distance = numpy.mean(distances[closest_category_indices])
-	return closest_category, average_distance
+	return closest_categories, average_distance
 
-def assign_category(document, category, assigned_category_counter, newly_labeled_documents):
-	assigned_category_counter[category] += 1
+def assign_category(document, categories, newly_labeled_documents):
 	newly_labeled_documents.append(document)
-	document.learned_category = category
+	document.learned_category = categories
 
-	sql_update = "update pap_papers_view set learned_category = '" + str(category) + \
+	sql_update = "update pap_papers_2 set learned_category = '" + ','.join(categories) + \
 		"' WHERE id = " + str(document.id)
 	#print document.title + " " + category
 
@@ -77,8 +90,6 @@ def propagate_labels(labeled_profiles, labels, acceptable_distance):
 	
 	#semantic_model.tester = lambda epoch: test_accuracy(semantic_model, db, epoch, 'accuracy_result.csv')
 
-
-	assigned_category_counter = Counter()
 	newly_labeled_documents = []
 
 	unlabeled_document_iterator = DocumentIterator(document_batch_size=DOCUMENT_BATCH_SIZE, db_window_size=DB_WINDOW_SIZE, where=UNLABELED_DOCUMENTS_CONDITION)
@@ -90,15 +101,14 @@ def propagate_labels(labeled_profiles, labels, acceptable_distance):
 			break
 
 		for i, unlabeled_document in enumerate(unlabeled_document_batch):
-			print i
 			semantic_model.inferProfiles([unlabeled_document], 
 				num_iters=PROFILE_INFERENCE_NUM_ITERS, update_word_profiles=False, initialize_document_profiles=True)
 			distances, indices = nbrs.kneighbors([unlabeled_document.profile])
 
-			closest_category, average_distance = find_closest_category(labels, distances[0], indices[0])
+			closest_categories, average_distance = find_closest_categories([labels[i] for i in indices[0]], distances[0], N_OUTPUT_LABELS)
 
 			if average_distance <= acceptable_distance:
-				assign_category(unlabeled_document, closest_category, assigned_category_counter, newly_labeled_documents)
+				assign_category(unlabeled_document, closest_categories, newly_labeled_documents)
 				
 				if len(newly_labeled_documents) == NEW_LABELS_BATCH:
 					print "Updating model..."
@@ -121,7 +131,6 @@ def propagate_labels(labeled_profiles, labels, acceptable_distance):
 				break
 
 def propagate_labels_gensim(labeled_profiles, labels, acceptable_distance, num_features, semantic_model, calc_distances):
-	assigned_category_counter = Counter()
 	newly_labeled_documents = []
 
 	unlabeled_document_iterator = DocumentIterator(document_batch_size=DOCUMENT_BATCH_SIZE, db_window_size=DB_WINDOW_SIZE, where=UNLABELED_DOCUMENTS_CONDITION)
@@ -133,17 +142,16 @@ def propagate_labels_gensim(labeled_profiles, labels, acceptable_distance, num_f
 		#	break
 
 		for i, unlabeled_document in enumerate(unlabeled_document_batch):
-			print i
-			
 			profile = semantic_model.inferProfile(unlabeled_document.tokenized_text)
 			if len(profile) == 0:
+				print "no elements"
 				continue
 			distances, indices = nbrs.kneighbors([profile])
 
-			closest_category, average_distance = find_closest_category(labels, distances[0], indices[0])
+			closest_categories, average_distance = find_closest_categories([labels[i] for i in indices[0]], distances[0], N_OUTPUT_LABELS)
 
 			if average_distance <= acceptable_distance:
-				assign_category(unlabeled_document, closest_category, assigned_category_counter, newly_labeled_documents)
+				assign_category(unlabeled_document, closest_categories, newly_labeled_documents)
 				
 				if len(newly_labeled_documents) == NEW_LABELS_BATCH:
 					print "Updating model..."
@@ -232,7 +240,7 @@ class LocalDocumentGenerator(object):
 			yield self.rowmapper(row)
 
 	def __enter__(self):
-		self.db = MySQLdb.connect(host='127.0.0.1', user='root', passwd='1qaz@WSX', db='test')
+		self.db = MySQLdb.connect(host='127.0.0.1', user='root', passwd='1qaz@WSX', db='paperity_small')
 		self.cursor = db.cursor(MySQLdb.cursors.DictCursor)
 		self.cursor.execute(self.query)
 		return self	
@@ -246,9 +254,9 @@ class LocalDocumentGenerator(object):
 
 def docRowMapper(row):
 	tokenized_text = tokenize(row['rawtext']).split()
-	label = row['learned_category']
+	labels = row['learned_category'].split(',')
 	
-	return tokenized_text, label
+	return tokenized_text, labels
 
 
 def getLabeledSetGensim(num_features):
@@ -270,26 +278,26 @@ def getLabeledSetGensim(num_features):
 	return labeled_profiles, labels, semantic_model
 
 if __name__ == "__main__":
-	iterative = False
+	iterative = True
 
 	if iterative:
 		semantic_model = SemanticModel.load(file_name=MODEL_SNAPSHOT_FILENAME, where=LABELED_DOCUMENTS_CONDITION)
 		labeled_profiles, labels = get_labeled_set()
 
-		mean, standard_deviation = calculate_statistics(labeled_profiles, semantic_model, calcDistancesIter)
-		print mean, standard_deviation, mean - standard_deviation
+		#mean, standard_deviation = calculate_statistics(labeled_profiles, semantic_model, calcDistancesIter)
+		#print mean, standard_deviation, mean - standard_deviation
 		mean, standard_deviation = 0.563052939071, 0.153272002339
 		acceptable_distance = mean - standard_deviation
 		propagate_labels(labeled_profiles, labels, acceptable_distance)
 	
 		#propagate_labels(labeled_profiles, labels, 0.905576610851 - 0.258739991239)
 	else:
-		num_features = 50
+		num_features = 80
 		labeled_profiles, labels, semantic_model = getLabeledSetGensim(num_features)
 		print "Len labeled: ", len(labeled_profiles) 		
-		mean, standard_deviation = calculate_statistics(labeled_profiles, semantic_model, calcDistancesGensim)
-		print mean, standard_deviation
-		#mean, standard_deviation = 0.853455089498, 0.166213023676
+		#mean, standard_deviation = calculate_statistics(labeled_profiles, semantic_model, calcDistancesGensim)
+		#print mean, standard_deviation
+		mean, standard_deviation = 0.853455089498, 0.166213023676
 		acceptable_distance = mean - standard_deviation
 
 		propagate_labels_gensim(labeled_profiles, labels, acceptable_distance, num_features, semantic_model, calcDistancesGensim)
