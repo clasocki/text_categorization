@@ -4,3 +4,4 @@
 *.snapshot
 *.tfidf
 *.lsi
+__pycache__/*

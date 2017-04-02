@@ -12,10 +12,11 @@ import itertools
 import sys
 #from svd_tester import test_accuracy
 import MySQLdb
+import time
 
 LABELED_DOCUMENTS_CONDITION = "published = 1 AND learned_category IS NOT NULL"
 UNLABELED_DOCUMENTS_CONDITION = "published = 1 AND learned_category IS NULL"
-PROFILE_INFERENCE_NUM_ITERS = 10
+PROFILE_INFERENCE_NUM_ITERS = 30
 N_NEIGHBORS = 15
 NEW_LABELS_BATCH = 1000
 FINAL_DOCUMENT_COUNT = 50000
@@ -52,6 +53,8 @@ def get_labeled_set():
 	labels = []
 	
 	for doc in labeled_documents:
+                if len(doc.profile) < 50:
+			print doc.id, len(doc.profile)
 		labeled_profiles.append(doc.profile)
 		labels.append(doc.learned_category)
 
@@ -110,10 +113,11 @@ def propagate_labels(labeled_profiles, labels, acceptable_distance):
 			if average_distance <= acceptable_distance:
 				assign_category(unlabeled_document, closest_categories, newly_labeled_documents)
 				
-				if len(newly_labeled_documents) == NEW_LABELS_BATCH:
+				if len(newly_labeled_documents) == round(0.33 * semantic_model.num_docs):#NEW_LABELS_BATCH:
 					print "Updating model..."
 					semantic_model.document_iterator.saveDocumentProfilesToDb(newly_labeled_documents)
-					semantic_model.update(newly_labeled_documents, num_iters=NUM_ITERS_MODEL_UPDATE)
+					semantic_model.update(newly_labeled_documents, num_iters_full_retrain=NUM_ITERS_MODEL_UPDATE, 
+						num_iters_partial_retrain=PROFILE_INFERENCE_NUM_ITERS)
 					
 					labeled_profiles, labels = get_labeled_set()
 					
@@ -144,7 +148,7 @@ def propagate_labels_gensim(labeled_profiles, labels, acceptable_distance, num_f
 		for i, unlabeled_document in enumerate(unlabeled_document_batch):
 			profile = semantic_model.inferProfile(unlabeled_document.tokenized_text)
 			if len(profile) == 0:
-				print "no elements"
+				print "no elements", unlabeled_document.id
 				continue
 			distances, indices = nbrs.kneighbors([profile])
 
@@ -265,8 +269,12 @@ def getLabeledSetGensim(num_features):
 
 	labeled_profiles, labels, semantic_model = [], [], None
 	with LocalDocumentGenerator(sql_query, docRowMapper) as labeled_docs:
+		training_start_time = time.time()
+
 		semantic_model = gensim_tests.SemanticModel.build((text for text, _ in labeled_docs if text), num_features, 
 			0.002 * len(labeled_docs), 0.33 * len(labeled_docs))
+
+		print "Model training time: " + str(time.time() - training_start_time)
 
 		for text, label in labeled_docs:
 			if text:
@@ -278,7 +286,7 @@ def getLabeledSetGensim(num_features):
 	return labeled_profiles, labels, semantic_model
 
 if __name__ == "__main__":
-	iterative = True
+	iterative = False
 
 	if iterative:
 		semantic_model = SemanticModel.load(file_name=MODEL_SNAPSHOT_FILENAME, where=LABELED_DOCUMENTS_CONDITION)
