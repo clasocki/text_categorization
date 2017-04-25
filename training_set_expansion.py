@@ -22,7 +22,7 @@ NEW_LABELS_BATCH = 1000
 FINAL_DOCUMENT_COUNT = 50000
 acceptable_distance = 1.0
 MODEL_SNAPSHOT_FILENAME = 'semantic_model.snapshot'
-NUM_ITERS_MODEL_UPDATE = 50
+NUM_ITERS_MODEL_UPDATE = 70
 DOCUMENT_BATCH_SIZE = 1000
 DB_WINDOW_SIZE = 1000
 N_OUTPUT_LABELS = 2
@@ -95,7 +95,8 @@ def propagate_labels(labeled_profiles, labels, acceptable_distance):
 
 	newly_labeled_documents = []
 
-	unlabeled_document_iterator = DocumentIterator(document_batch_size=DOCUMENT_BATCH_SIZE, db_window_size=DB_WINDOW_SIZE, where=UNLABELED_DOCUMENTS_CONDITION)
+	unlabeled_document_iterator = DocumentIterator(document_batch_size=DOCUMENT_BATCH_SIZE, db_window_size=DB_WINDOW_SIZE, where=UNLABELED_DOCUMENTS_CONDITION,
+                                                       convertText=semantic_model.convertText)
 	nbrs = NearestNeighbors(n_neighbors=N_NEIGHBORS, algorithm='brute', metric='cosine').fit(labeled_profiles)
 
 	stop_propagation = semantic_model.num_docs >= FINAL_DOCUMENT_COUNT
@@ -186,7 +187,8 @@ def calculate_statistics(labeled_profiles, semantic_model, calc_distances):
 	mean, M2 = 0.0, 0.0
 	####
 
-	unlabeled_document_iterator = DocumentIterator(document_batch_size=DOCUMENT_BATCH_SIZE, db_window_size=3500, where=UNLABELED_DOCUMENTS_CONDITION)
+	unlabeled_document_iterator = DocumentIterator(document_batch_size=DOCUMENT_BATCH_SIZE, db_window_size=3500, where=UNLABELED_DOCUMENTS_CONDITION,
+                                                       convertText=semantic_model.convertText)
 
 	all_distances = []
 
@@ -286,7 +288,7 @@ def getLabeledSetGensim(num_features):
 	return labeled_profiles, labels, semantic_model
 
 if __name__ == "__main__":
-	iterative = False
+	iterative = True
 
 	if iterative:
 		semantic_model = SemanticModel.load(file_name=MODEL_SNAPSHOT_FILENAME, where=LABELED_DOCUMENTS_CONDITION)
