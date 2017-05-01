@@ -33,17 +33,20 @@ def retrieve_rawtexts_by_id(srcfilename, destdir):
 
 def compare_category_allocation(filename1, filename2, filename_same, filename_diff):
     allocations1, allocations2 = dict(), dict()
+    
+    num_invalid_titles = 0
     with open(filename1, 'r') as f:
         reader = csv.reader(f, delimiter=',', quotechar='"', lineterminator='\n')
 
         for row in reader:
-            if len(row) == 5:
+            if len(row) == 4:
                 pap_id = row[0]
                 title = row[2]
                 category = row[3]
-                allocations1[title] = category
+                allocations1[title] = set(category.split(','))
+            else:
+                num_invalid_titles += 1
 
-    num_invalid_titles = 0
     with open(filename2, 'r') as f:
         reader = csv.reader(f, delimiter=',', quotechar='"', lineterminator='\n')        
         for row in reader:
@@ -51,23 +54,23 @@ def compare_category_allocation(filename1, filename2, filename_same, filename_di
                 pap_id = row[0]
                 title = row[2]
                 category = row[3]
-                allocations2[title] = category
+                allocations2[title] = set(category.split(','))
             else:
                 num_invalid_titles += 1
 
     matches = 0
     papers_in_both_sets = 0
-
+    print len(allocations1), len(allocations2)
     with open(filename_same, 'w') as f_same, open(filename_diff, 'w') as f_diff:
         same_csv_writer = csv.writer(f_same)
         diff_csv_writer = csv.writer(f_diff)
         for title, category in allocations2.iteritems():
-            print title, category
+            #print title, category
             if title in allocations1:
                 papers_in_both_sets += 1
-                if allocations1[title] == category:
+                if allocations1[title].intersection(category):
                     matches += 1
-                    same_csv_writer.writerow([title, category])
+                    same_csv_writer.writerow([title, category, allocations1[title]])
                 else:
                     diff_csv_writer.writerow([title, category, allocations1[title]])
 
@@ -126,7 +129,7 @@ if __name__ == "__main__":
     rawtext_dirname = "/home/clasocki/rawtexts"
     paper_list_filename = "/home/clasocki/discipline_allocation.csv"
 
-    save_rawtexts_by_id(rawtext_dirname, paper_list_filename)
+    #save_rawtexts_by_id(rawtext_dirname, paper_list_filename)
 
-    dirname = '/home/cezary/Documents/MGR/backups/'
-    #compare_category_allocation(dirname + 'labeled_iterative.csv', dirname + 'labeled_gensim.csv', dirname + 'same_categories.csv', dirname + 'diff_categories.csv')
+    dirname = '/home/clasocki/'
+    compare_category_allocation(dirname + 'labeled_iterative.csv', dirname + 'labeled_iter2.csv', dirname + 'same_categories.csv', dirname + 'diff_categories.csv')

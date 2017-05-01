@@ -22,7 +22,7 @@ NEW_LABELS_BATCH = 1000
 FINAL_DOCUMENT_COUNT = 50000
 acceptable_distance = 1.0
 MODEL_SNAPSHOT_FILENAME = 'semantic_model.snapshot'
-NUM_ITERS_MODEL_UPDATE = 70
+NUM_ITERS_MODEL_UPDATE = 90
 DOCUMENT_BATCH_SIZE = 1000
 DB_WINDOW_SIZE = 1000
 N_OUTPUT_LABELS = 2
@@ -47,7 +47,7 @@ def find_most_common_labels(labels, n):
 	return most_common_labels
 
 def get_labeled_set():
-	labeled_documents = DocumentIterator(where=LABELED_DOCUMENTS_CONDITION).getAll()
+	labeled_documents = DocumentIterator(doc_filter=LABELED_DOCUMENTS_CONDITION).getAll()
 	
 	labeled_profiles = []
 	labels = []
@@ -86,7 +86,7 @@ def assign_category(document, categories, newly_labeled_documents):
 def propagate_labels(labeled_profiles, labels, acceptable_distance):
 	print "Label propagation..."
 
-	semantic_model = SemanticModel.load(file_name=MODEL_SNAPSHOT_FILENAME, where=LABELED_DOCUMENTS_CONDITION)
+	semantic_model = SemanticModel.load(file_name=MODEL_SNAPSHOT_FILENAME, doc_filter=LABELED_DOCUMENTS_CONDITION)
 
 	
 	#db = MySQLdb.connect(host='localhost', user='root', passwd='1qaz@WSX', db='paperity')
@@ -95,7 +95,7 @@ def propagate_labels(labeled_profiles, labels, acceptable_distance):
 
 	newly_labeled_documents = []
 
-	unlabeled_document_iterator = DocumentIterator(document_batch_size=DOCUMENT_BATCH_SIZE, db_window_size=DB_WINDOW_SIZE, where=UNLABELED_DOCUMENTS_CONDITION,
+	unlabeled_document_iterator = DocumentIterator(document_batch_size=DOCUMENT_BATCH_SIZE, db_window_size=DB_WINDOW_SIZE, doc_filter=UNLABELED_DOCUMENTS_CONDITION,
                                                        convertText=semantic_model.convertText)
 	nbrs = NearestNeighbors(n_neighbors=N_NEIGHBORS, algorithm='brute', metric='cosine').fit(labeled_profiles)
 
@@ -114,7 +114,7 @@ def propagate_labels(labeled_profiles, labels, acceptable_distance):
 			if average_distance <= acceptable_distance:
 				assign_category(unlabeled_document, closest_categories, newly_labeled_documents)
 				
-				if len(newly_labeled_documents) == round(0.33 * semantic_model.num_docs):#NEW_LABELS_BATCH:
+				if len(newly_labeled_documents) == round(0.40 * semantic_model.num_docs):#NEW_LABELS_BATCH:
 					print "Updating model..."
 					semantic_model.document_iterator.saveDocumentProfilesToDb(newly_labeled_documents)
 					semantic_model.update(newly_labeled_documents, num_iters_full_retrain=NUM_ITERS_MODEL_UPDATE, 
@@ -135,10 +135,10 @@ def propagate_labels(labeled_profiles, labels, acceptable_distance):
 				stop_propagation = True
 				break
 
-def propagate_labels_gensim(labeled_profiles, labels, acceptable_distance, num_features, semantic_model, calc_distances):
+def propagate_labels_gensim(labeled_profiles, labels, acceptable_distance, num_features, semantic_model, calc_distances, min_df, max_df):
 	newly_labeled_documents = []
 
-	unlabeled_document_iterator = DocumentIterator(document_batch_size=DOCUMENT_BATCH_SIZE, db_window_size=DB_WINDOW_SIZE, where=UNLABELED_DOCUMENTS_CONDITION)
+	unlabeled_document_iterator = DocumentIterator(document_batch_size=DOCUMENT_BATCH_SIZE, db_window_size=DB_WINDOW_SIZE, doc_filter=UNLABELED_DOCUMENTS_CONDITION)
 	nbrs = NearestNeighbors(n_neighbors=N_NEIGHBORS, algorithm='brute', metric='cosine').fit(labeled_profiles)
 
 	#stop_propagation = semantic_model.num_docs >= FINAL_DOCUMENT_COUNT
@@ -161,7 +161,7 @@ def propagate_labels_gensim(labeled_profiles, labels, acceptable_distance, num_f
 				if len(newly_labeled_documents) == NEW_LABELS_BATCH:
 					print "Updating model..."
 					
-					labeled_profiles, labels, semantic_model = getLabeledSetGensim(num_features)
+					labeled_profiles, labels, semantic_model = getLabeledSetGensim(num_features, min_df, max_df)
 					
 					#mean, standard_deviation = calculate_statistics(labeled_profiles, semantic_model, calc_distances)
 					#acceptable_distance = mean - standard_deviation
@@ -187,7 +187,7 @@ def calculate_statistics(labeled_profiles, semantic_model, calc_distances):
 	mean, M2 = 0.0, 0.0
 	####
 
-	unlabeled_document_iterator = DocumentIterator(document_batch_size=DOCUMENT_BATCH_SIZE, db_window_size=3500, where=UNLABELED_DOCUMENTS_CONDITION,
+	unlabeled_document_iterator = DocumentIterator(document_batch_size=DOCUMENT_BATCH_SIZE, db_window_size=3500, doc_filter=UNLABELED_DOCUMENTS_CONDITION,
                                                        convertText=semantic_model.convertText)
 
 	all_distances = []
@@ -246,27 +246,26 @@ class LocalDocumentGenerator(object):
 			yield self.rowmapper(row)
 
 	def __enter__(self):
-		self.db = MySQLdb.connect(host='127.0.0.1', user='root', passwd='1qaz@WSX', db='paperity_small')
 		self.cursor = db.cursor(MySQLdb.cursors.DictCursor)
 		self.cursor.execute(self.query)
 		return self	
 
 	def __exit__(self, type, value, tb):
 		self.cursor.close()
-		self.db.close()
 
 	def __len__(self):
 		return self.cursor.rowcount
 
 def docRowMapper(row):
 	tokenized_text = tokenize(row['rawtext']).split()
+        #if not tokenized_text: print row['file_name'], row['learned_category'], row['rawtext']
 	labels = row['learned_category'].split(',')
 	
 	return tokenized_text, labels
 
 
-def getLabeledSetGensim(num_features):
-	sql_query = "SELECT rawtext, learned_category FROM pap_papers_view where %s" % (LABELED_DOCUMENTS_CONDITION,)
+def getLabeledSetGensim(num_features, min_df, max_df):
+	sql_query = "SELECT file_name, rawtext, learned_category FROM pap_papers_view where %s" % (LABELED_DOCUMENTS_CONDITION,)
 	print sql_query
 
 	labeled_profiles, labels, semantic_model = [], [], None
@@ -274,7 +273,7 @@ def getLabeledSetGensim(num_features):
 		training_start_time = time.time()
 
 		semantic_model = gensim_tests.SemanticModel.build((text for text, _ in labeled_docs if text), num_features, 
-			0.002 * len(labeled_docs), 0.33 * len(labeled_docs))
+			min_df * len(labeled_docs), max_df * len(labeled_docs))
 
 		print "Model training time: " + str(time.time() - training_start_time)
 
@@ -291,7 +290,8 @@ if __name__ == "__main__":
 	iterative = True
 
 	if iterative:
-		semantic_model = SemanticModel.load(file_name=MODEL_SNAPSHOT_FILENAME, where=LABELED_DOCUMENTS_CONDITION)
+		semantic_model = SemanticModel.load(file_name=MODEL_SNAPSHOT_FILENAME, doc_filter=LABELED_DOCUMENTS_CONDITION,
+                                                    learning_rate=0.005, regularization_factor=0.01)
 		labeled_profiles, labels = get_labeled_set()
 
 		#mean, standard_deviation = calculate_statistics(labeled_profiles, semantic_model, calcDistancesIter)
@@ -303,11 +303,13 @@ if __name__ == "__main__":
 		#propagate_labels(labeled_profiles, labels, 0.905576610851 - 0.258739991239)
 	else:
 		num_features = 80
-		labeled_profiles, labels, semantic_model = getLabeledSetGensim(num_features)
+                min_df = 0.002
+                max_df = 0.33
+		labeled_profiles, labels, semantic_model = getLabeledSetGensim(num_features, min_df, max_df)
 		print "Len labeled: ", len(labeled_profiles) 		
 		#mean, standard_deviation = calculate_statistics(labeled_profiles, semantic_model, calcDistancesGensim)
 		#print mean, standard_deviation
 		mean, standard_deviation = 0.853455089498, 0.166213023676
 		acceptable_distance = mean - standard_deviation
 
-		propagate_labels_gensim(labeled_profiles, labels, acceptable_distance, num_features, semantic_model, calcDistancesGensim)
+		propagate_labels_gensim(labeled_profiles, labels, acceptable_distance, num_features, semantic_model, calcDistancesGensim, min_df, max_df)

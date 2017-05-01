@@ -18,35 +18,29 @@ import warnings
 #numpy.seterr(all='warn')
 #warnings.filterwarnings('error')
 
-document_specification = [
-    ('id', numba.int32),
-    ('profile', numba.float64[:]),
-    ('word_weights', numba.float64[:,:]),
-]
-
-@numba.jitclass(document_specification)
 class Document(object):
-    def __init__(self, id, profile, word_weights):
-        self.id = id
+    def __init__(self, profile, word_weights):
         self.profile = profile
         self.word_weights = word_weights
+        self.words = words
+        self.category = category
 
 class DocumentIterator(object):
-    def __init__(self, where, document_batch_size=600, db_window_size=600, convertText=None):
+    def __init__(self, doc_filter, document_batch_size, db_window_size, calculateWordWeights=None):
         self.current_record_offset = 0
         self.DOCUMENT_BATCH_SIZE = document_batch_size
         self.DB_WINDOW_SIZE = db_window_size
-        self.where = where
-        self.convertText = convertText
+        self.doc_filter = doc_filter
+        self.calculateWordWeights = calculateWordWeights
 
     def getRandomDocumentsFromDb(self):
         query = "SELECT * FROM " + \
             "((SELECT * " + \
             "FROM pap_papers_view WHERE " + \
-            self.where + " " + \
+            self.doc_filter + " " + \
             "LIMIT " + str(self.DB_WINDOW_SIZE) + " OFFSET " + str(self.current_record_offset) + ")"
 
-        db_row_count = db.select("SELECT COUNT(1) FROM pap_papers_view WHERE " + self.where)[0]['COUNT(1)']
+        db_row_count = db.select("SELECT COUNT(1) FROM pap_papers_view WHERE " + self.doc_filter)[0]['COUNT(1)']
 
         remaining_batch_size = self.DB_WINDOW_SIZE - db_row_count + self.current_record_offset
         
@@ -57,7 +51,7 @@ class DocumentIterator(object):
             query += " UNION " + \
             "(SELECT * " + \
             "FROM pap_papers_view WHERE " + \
-            self.where + " " + \
+            self.doc_filter + " " + \
             "LIMIT " + str(remaining_batch_size) + " OFFSET 0)"
 
         query += ") LIMITED " + \
@@ -74,13 +68,13 @@ class DocumentIterator(object):
         return document_batch
 
     def getAllInBatches(self):
-        db_row_count = db.select("SELECT COUNT(1) FROM pap_papers_view WHERE " + self.where)[0]['COUNT(1)']
+        db_row_count = db.select("SELECT COUNT(1) FROM pap_papers_view WHERE " + self.doc_filter)[0]['COUNT(1)']
         
         while self.current_record_offset < db_row_count:
             print self.current_record_offset
             
             query = "SELECT * " + \
-                "FROM pap_papers_view WHERE " + self.where + " " + \
+                "FROM pap_papers_view WHERE " + self.doc_filter + " " + \
                 "LIMIT " + str(self.DB_WINDOW_SIZE) + " OFFSET " + str(self.current_record_offset)
 
             document_batch = Paper.selectRaw(query)
@@ -90,7 +84,7 @@ class DocumentIterator(object):
             self.current_record_offset += self.DB_WINDOW_SIZE
 
     def getAll(self):
-        query = "SELECT * FROM pap_papers_view WHERE " + self.where
+        query = "SELECT * FROM pap_papers_view WHERE " + self.doc_filter
 
         all_documents = Paper.selectRaw(query)
 
@@ -117,8 +111,8 @@ class DocumentIterator(object):
             document_profile = document.profile
             str_document_profile = ','.join(str(profile_element) for profile_element in document_profile)
 
-            #sql_update = "UPDATE pap_papers_view SET profile = '" + \
-            sql_update = "UPDATE pap_papers_3 SET profile = '" + \
+            #sql_update = "UPDATE pap_papers_3 SET profile = '" + \
+            sql_update = "UPDATE pap_papers_view SET profile = '" + \
                 str_document_profile + \
                 "' WHERE id = " + str(db_document_id)
 
@@ -135,24 +129,35 @@ class DocumentIterator(object):
         for document in documents:
             document.tokenized_text = tokenize(document.rawtext).split()
             document.profile = numpy.asarray(document.profile)
+            document.word_weights = self.calculateWordWeights(document.tokenized_text) if self.calculateWordWeights else None
 
-            if self.convertText is not None:
-                document.word_weights = self.convertText(document.tokenized_text)
-
-            if (self.convertText is not None and len(document.word_weights) > 0) or (self.convertText is None and len(document.tokenized_text) > 0):
+            if (self.calculateWordWeights and len(document.word_weights) > 0) or (not self.calculateWordWeights and len(document.tokenized_text) > 0):
                 processed_docs.append(document)
      
         return processed_docs
 
     #@profile
-    def __iter__(self):
+    def batchIter(self):
         while True:
             document_batch = self.getRandomDocumentsFromDb()
             if not document_batch:
                 break
 
             yield self.processDocuments(document_batch)
-            
+    """
+    def docByDocIter(self, doc_filter=None):
+        query = "SELECT rawtext,  FROM pap_papers_view WHERE " + doc_filter if doc_filter else self.doc_filter
+        cursor = db.execute(query)
+        for doc in cursor:
+            tokenized_text = tokenize(document.rawtext).split()
+            profile = numpy.asarray(document.profile)
+            word_weights = self.calculateWordWeights(document.tokenized_text) if self.calculateWordWeights else None
+            yield Document(
+
+
+        return cursor.rowcount, cursor
+    """ 
+
 class TermFrequencyWeight(Enum):
     RAW_FREQUENCY = 1
     LOG_NORMALIZATION = 2
@@ -221,6 +226,18 @@ def inferProfilesPerDocument(word_weights, document_profile, word_profiles, lear
 
     return squared_error, num_values
 
+@numba.jit(nopython=True,cache=True)
+def calculateErrorPerDocument(doc_profile, word_weights, word_profiles, regularization_factor):
+    rsse, num_values = 0.0, 0
+    
+    for word_id, value in word_weights:
+        num_values += 1
+        predicted_value = numpy.dot(doc_profile, word_profiles[word_id, :])
+        error = 1.0 * value - predicted_value
+        rsse += error ** 2 + regularization_factor * (numpy.linalg.norm(doc_profile) ** 2 + numpy.linalg.norm(word_profiles[word_id, :]) ** 2)
+
+    return rsse, num_values
+
 #@numba.jit(cache=True)
 def numbaInfer(documents, word_profiles, learning_rate, regul_factor, num_iters, update_document_profiles, update_word_profiles, updated_word_ids):
     for current_iter in xrange(num_iters):
@@ -241,13 +258,11 @@ def numbaInfer(documents, word_profiles, learning_rate, regul_factor, num_iters,
 
 
 class SemanticModel(object):
-    MAX_UPDATE_ITER = 1
-    REGULARIZATION_FACTOR = 0.01
-    LEARNING_RATE = 0.0015
-
-    def __init__(self, num_features, file_name, where,
+    def __init__(self, num_features, file_name, doc_filter,
         term_freq_weight=TermFrequencyWeight.LOG_NORMALIZATION, use_idf = True,
-        min_df=0.0, max_df=1.0, limit_features=True,
+        min_df=0.0, max_df=1.0, learning_rate=0.001, regularization_factor=0.01, 
+        neg_weights=3.0, doc_prof_low=-0.01, doc_prof_high=0.01, word_prof_low=-0.01, word_prof_high=0.01, 
+        document_batch_size=1000, db_window_size=1000, limit_features=True,
         preanalyze_documents=True, tester=None, save_frequency=40, test_frequency=40):
         """
         :param num_features: number of features inferred from the document set
@@ -270,6 +285,13 @@ class SemanticModel(object):
         self.idf = self.setUpIdf()
         self.min_df = min_df
         self.max_df = max_df
+        self.learning_rate = learning_rate
+        self.regularization_factor = regularization_factor
+        self.neg_weights = neg_weights
+        self.doc_prof_low = doc_prof_low
+        self.doc_prof_high = doc_prof_high
+        self.word_prof_low = word_prof_low
+        self.word_prof_high = word_prof_high
         self.limit_features = limit_features
         self.preanalyze_documents = preanalyze_documents
         self.tester = tester
@@ -277,7 +299,8 @@ class SemanticModel(object):
         self.test_frequency = test_frequency
 
         self.word_profiles = numpy.random.uniform(low=-0.01, high=0.01, size=(1, self.num_features))
-        self.document_iterator = DocumentIterator(where=where, convertText=self.convertText)
+        self.document_iterator = DocumentIterator(doc_filter=doc_filter, document_batch_size=document_batch_size, 
+                                                  db_window_size=db_window_size, calculateWordWeights=self.calculateWordWeights)
         self.token_to_id = dict() # token -> token id
         self.id_to_token = dict()
         self.doc_freqs = defaultdict(int)  # token id -> the number of documents this token appears in
@@ -288,30 +311,24 @@ class SemanticModel(object):
                                    # i.e. they exist in (for float) 
                                    # [min_df * self.num_docs, max_df * self.num_docs] or (for int) [min_df, max_df] documents 
         self.current_document_batch = None  
-   
-    #@profile
-    def inferProfile(self, document, update_word_profiles):
-        addToUpdatedWordIds = self.updated_word_ids.add
-        for word_id, value in document.word_weights:
-            predicted_value = predictValue(document.profile, self.word_profiles, word_id)
-            error = 1.0 * value - predicted_value
+  
+    def inferProfile(self, rawtext, num_iters, learning_rate, regularization_factor):
+        words = tokenize(rawtext).split()
+        profile = self.getInitialDocumentProfile()
+        word_weights = self.calculateWordWeights(words)
+        
+        if not word_weights: return numpy.empty(0)
 
-            #document.profile += \
-            #    self.LEARNING_RATE * (error * self.word_profiles[word_id, :] - self.REGULARIZATION_FACTOR * document.profile)
-            
-            updateDocProfile(document.profile, self.LEARNING_RATE, error, self.word_profiles, word_id, self.REGULARIZATION_FACTOR) 
-            if update_word_profiles:
-                addToUpdatedWordIds(word_id)
-                updateWordProfile(document.profile, self.LEARNING_RATE, error, self.word_profiles, word_id, self.REGULARIZATION_FACTOR)               
-                #self.word_profiles[word_id, :] += \
-                #    self.LEARNING_RATE * (error * document.profile - self.REGULARIZATION_FACTOR * self.word_profiles[word_id, :])
-         
-        #print "sub: " + str(document.profile)
- 
+        for current_iter in xrange(num_iters):
+            inferProfilesPerDocument(word_weights, profile, self.word_profiles, learning_rate, 
+                                 regularization_factor, update_document_profiles=True, update_word_profiles=False, updated_word_ids=set([-1]))
+
+        return profile
+
+     
     #@profile
-    #@numba.jit(cache=True)
     def inferProfiles(self, documents, update_document_profiles=True, update_word_profiles=True, initialize_document_profiles=False, 
-                      initialize_word_profiles=False, num_iters=MAX_UPDATE_ITER, print_stats=False):
+                      initialize_word_profiles=False, num_iters=1, print_stats=False):
         """
         Calculates profiles for documents
         :param documents: a list of unconverted documents
@@ -324,48 +341,47 @@ class SemanticModel(object):
             documents = self.initializeDocumentProfiles(documents)  
     
         #if initialize_word_profiles and selected_word_ids is not None:
-        #    self.initializeWordProfiles(selected_word_ids, len(selected_word_ids), low=-0.001, high=0.001)
+        #    self.initializeWordProfiles(selected_word_ids, len(selected_word_ids))
 
         if num_iters > 1:
             documents = list(documents)
 
-        current_iter = 0
-
         self.updated_word_ids.add(-1)
         
-        numbaInfer(documents, self.word_profiles, self.LEARNING_RATE, self.REGULARIZATION_FACTOR, 
-            num_iters, update_document_profiles, update_word_profiles, self.updated_word_ids)
-        """
         for current_iter in xrange(num_iters):
-            squared_error = 0.0
-            num_values = 0
+            squared_approx_error = 0.0
+            num_words = 0
 
             for document in documents:
-                squared_approx_error, num_words = inferProfilesPerDocument(document.word_weights, document.profile, self.word_profiles, 
-                    self.LEARNING_RATE, self.REGULARIZATION_FACTOR, update_document_profiles, update_word_profiles, self.updated_word_ids)
+                err, num_w = inferProfilesPerDocument(document.word_weights, document.profile, self.word_profiles, 
+                    self.learning_rate, self.regularization_factor, update_document_profiles, update_word_profiles, self.updated_word_ids)
+            
+                squared_approx_error += err
+                num_words += num_w
            
-            rmse = numpy.sqrt(squared_approx_error / num_words) if num_values > 0 else 0.0
-    
-            if print_stats:
-                print "Partial RMSE: " + str(rmse) #+ ", num words: " + str(len(documents[0].full_converted_text))
-        """
+            rmse = numpy.sqrt(squared_approx_error / num_words) if num_words > 0 else 0.0
+
         self.updated_word_ids.remove(-1)            
 
         return (document.profile for document in documents)
         
 
     def calculateError(self, documents):
-        squared_error = 0.0
+        total_rsse = 0.0
         num_values = 0
 
         for document in documents:
+            rsse, num_w = calculateErrorPerDocument(document.profile, document.word_weights, self.word_profiles, self.regularization_factor)
+            total_rsse += rsse
+            num_values += num_w
+            """
             for word_id, value in document.word_weights:
                 num_values += 1
                 predicted_value = predictValue(document.profile, self.word_profiles, word_id)
                 error = 1.0 * value - predicted_value
-                squared_error += error * error
-
-        rmse = numpy.sqrt(squared_error / num_values) if num_values > 0 else 0.0
+                squared_error += error ** 2 + self.regularization_factor * (numpy.linalg.norm(document.profile) ** 2 + numpy.linalg.norm(self.word_profiles[word_id, :]) ** 2)
+            """
+        rmse = numpy.sqrt(total_rsse / num_values) if num_values > 0 else 0.0
 
         return rmse
 
@@ -442,7 +458,7 @@ class SemanticModel(object):
 
         for document_id_batch in numpy.array_split(document_ids, math.ceil(float(len(document_ids)) / 300)):
             where = "id in (%s)" % ', '.join(str(doc_id) for doc_id in document_id_batch)
-            yield DocumentIterator(where=where).getAll()
+            yield DocumentIterator(doc_filter=where).getAll()
  
     def predictValueOld(self, document, word_id):
         #print "Document id " + str(document_id)
@@ -482,8 +498,11 @@ class SemanticModel(object):
         self.updated_word_ids.update(xrange(num_tokens_before_update, num_new_tokens))
         #self.compactify(added_ids=range(tokens_before_update, num_new_tokens), removed_ids=[])
 
+    def getInitialDocumentProfile(self):
+        return numpy.random.uniform(low=self.doc_prof_low, high=self.doc_prof_high, size=self.num_features)
+
     def initializeDocumentProfile(self, document):
-        document.profile = numpy.random.uniform(low=-0.01, high=0.01, size=self.num_features)
+        document.profile = self.getInitialDocumentProfile()
 
         return document
 
@@ -491,8 +510,8 @@ class SemanticModel(object):
         for document in documents:
             yield self.initializeDocumentProfile(document)
         
-    def initializeWordProfiles(self, word_ids, num_words, low=-0.01, high=0.01):
-        new_word_profiles = numpy.random.uniform(low=low, high=high, 
+    def initializeWordProfiles(self, word_ids, num_words):
+        new_word_profiles = numpy.random.uniform(low=self.word_prof_low, high=self.word_prof_high, 
                 size=(num_words, self.num_features))
         for new_profile_id, word_id in enumerate(word_ids):
             self.word_profiles[word_id, :] = new_word_profiles[new_profile_id, :]
@@ -546,7 +565,7 @@ class SemanticModel(object):
         self.word_profiles = numpy.resize(self.word_profiles,
                 (self.last_active_id + 1, self.num_features))
 
-        self.initializeWordProfiles((id_map[word_id] for word_id in added_ids), len(added_ids), low=-0.001, high=0.001)
+        self.initializeWordProfiles((id_map[word_id] for word_id in added_ids), len(added_ids))
 
         return id_map
 
@@ -591,7 +610,7 @@ class SemanticModel(object):
     
     #@profile
     #@numba.jit(cache=True)
-    def convertText(self, words):
+    def calculateWordWeights(self, words):
         bag_of_words = defaultdict(int)
         for word in words:
             if word in self.token_to_id:
@@ -606,7 +625,7 @@ class SemanticModel(object):
         #for word_id in bag_of_words.keys():
         #    converted_text[word_id] = self.tf(bag_of_words, word_id) * self.idf(self.num_docs, word_id, self.doc_freqs)
 
-        return self.fullConvertedText(word_weights)
+        return self.calculateExtendedWordWeights(word_weights)
 
     def convertDocuments(self, documents):
         """
@@ -615,14 +634,14 @@ class SemanticModel(object):
         :return: list of documents in the bag-of-words format with a local id assigned
         """
         for document in documents:
-            document.word_weights = self.convertText(document.tokenized_text)
+            document.word_weights = self.calculateWordWeights(document.tokenized_text)
 
             yield document
 
         #return documents
 
     #@numba.jit(cache=True)
-    def fullConvertedText(self, converted_text):
+    def calculateExtendedWordWeights(self, converted_text):
         """
         :param document: document represented as a map: token_id -> token_weight where token_id exists in the document
         :return: document represented as an iterator returning tuples: (token_id, token_weight)
@@ -638,7 +657,7 @@ class SemanticModel(object):
         
         positive_weight_count = len(converted_text)
         #print "Last active id: %s, positive weight count: %s" % (self.last_active_id, positive_weight_count)
-        sample_size = min(self.last_active_id + 1, int(math.ceil(positive_weight_count * 3.0)))
+        sample_size = min(self.last_active_id + 1, int(math.ceil(positive_weight_count * self.neg_weights)))
         active_tokens_sample_ids = numpy.random.choice(self.last_active_id + 1, sample_size, replace=False) if self.last_active_id != -1 else numpy.empty(shape=(0,))
 
         weights = ((token_id, 0) 
@@ -699,12 +718,16 @@ class SemanticModel(object):
         :return:
         """
         epoch = 0
-        last_rmse = sys.maxint
+        prev_rmse1 = sys.maxint
+        prev_rmse2 = sys.maxint
+        doc_count = 0
+        docs_since_last_epoch = 0
 
         if self.preanalyze_documents:
-            self.document_iterator.convertText = None
+            self.document_iterator.calculateWordWeights = None
             all_documents = self.document_iterator.getAll()
-            self.document_iterator.convertText = self.convertText
+            doc_count = len(all_documents)
+            self.document_iterator.calculateWordWeights = self.calculateWordWeights
 
             self.current_document_batch = all_documents
             all_documents = self.initializeDocumentProfiles(all_documents)
@@ -716,7 +739,7 @@ class SemanticModel(object):
         #while (epoch < self.min_iter or rmse_last - rmse >= self.min_improvement) and epoch < self.max_iter:
         #while num_iter is None or epoch < num_iter:
         #while True:
-        for document_batch in self.document_iterator:
+        for document_batch in self.document_iterator.batchIter():
             self.current_document_batch = document_batch
 
             start_time = time.time()
@@ -726,26 +749,30 @@ class SemanticModel(object):
             start_time = time.time()
             self.save(save_words=(epoch % self.save_frequency == 0 and epoch != 0))
             saving_time = time.time() - start_time
-
+            docs_since_last_epoch += len(document_batch)
+            print docs_since_last_epoch, doc_count
             print "Iter: %s, Save: %s, Infer: %s" % (str(epoch), str(saving_time), str(inference_time))
+               
+            if (doc_count and docs_since_last_epoch >= doc_count) or not doc_count:
+                docs_since_last_epoch = 0
+                epoch += 1
 
-            if epoch % self.test_frequency == 0 and epoch != 0:
+            if epoch % self.test_frequency == 0:
                 if self.tester:
                     start_time = time.time()
                     self.tester(epoch)
-                    print "Test: " + str(time.time() - start_time)     
-            
-            if epoch % 10  == 0:
+                    print "Test: " + str(time.time() - start_time)
+
                 all_documents = self.document_iterator.getAll()
                 total_rmse = self.calculateError(all_documents)
                 print "Total RMSE: " + str(total_rmse)
 
-                if total_rmse > last_rmse:
-                    break
-                last_rmse = total_rmse
+                #if total_rmse > prev_rmse1 and prev_rmse1 > prev_rmse2:
+                #    break
+                prev_rmse2 = prev_rmse1
+                prev_rmse1 = total_rmse
             
                 
-            epoch += 1
 
             if num_iter is not None and epoch >= num_iter:
                 break
@@ -836,6 +863,8 @@ class SemanticModel(object):
             db.commit()
 
         self.updated_word_ids.clear()
+        
+        return #saving word - document mappings disabled temporarily
 
         sql_insert = "INSERT INTO pap_word_documents (word, document_id) VALUES "
         sql_update = " ON DUPLICATE KEY UPDATE word = VALUES(word), document_id = VALUES(document_id)"
@@ -878,7 +907,7 @@ class SemanticModel(object):
             json.dump(model_data, fp)
 
     @staticmethod
-    def load(file_name, where):
+    def load(file_name, doc_filter, learning_rate, regularization_factor):
         """
         :param file_name: serialized model file name
         :return: SemanticModel based on the serialized data
@@ -891,7 +920,7 @@ class SemanticModel(object):
 
             num_features, num_words, num_active_words, num_docs, min_df, max_df = snapshot_reader.readGeneralStats()
 
-            semantic_model = SemanticModel(num_features=num_features, file_name=file_name, where=where)
+            semantic_model = SemanticModel(num_features=num_features, file_name=file_name, doc_filter=doc_filter)
             semantic_model.num_docs = num_docs
             semantic_model.word_profiles = numpy.zeros((num_active_words, num_features))
             semantic_model.min_df = min_df
@@ -1077,7 +1106,7 @@ if __name__ == "__main__":
         #document_iterator.saveDocumentProfilesToDb(all_documents)
 
 
-        #semantic_model = SemanticModel(num_features=8, file_name=file_name, where="published = 1 and is_test = 0", min_df=0.003, max_df=0.5)
+        #semantic_model = SemanticModel(num_features=8, file_name=file_name, doc_filter="published = 1 and is_test = 0", min_df=0.003, max_df=0.5)
         #semantic_model.train()
 
         with open(file_name, 'r') as f:

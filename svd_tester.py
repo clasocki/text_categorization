@@ -20,6 +20,7 @@ from sklearn.ensemble import RandomForestClassifier
 from training_set_expansion import getLabeledSetGensim, LocalDocumentGenerator
 import time
 from sklearn.multiclass import OneVsRestClassifier
+from sklearn.linear_model import Perceptron
 
 rootdir = '/home/clasocki/20news-bydate/'
 rootdir_test = rootdir + '20news-bydate-test'
@@ -126,29 +127,24 @@ def perform_clustering(profiles, original_labels):
 
 #@profile
 def calculate_classification_accuracy(train_set, train_set_target, test_set, semantic_model, num_labels=3):
-	neigh = NearestNeighbors(n_neighbors=15, algorithm='brute', metric='cosine')
-	neigh.fit(train_set)
-	rfClf = RandomForestClassifier(n_estimators=80)
-	rfClf.fit(train_set, train_set_target)
+	#neigh = NearestNeighbors(n_neighbors=15, algorithm='brute', metric='cosine')
+	#neigh.fit(train_set)
+	clf = RandomForestClassifier(n_estimators=80)
+        clf = Perceptron(n_iter=50)
+	clf.fit(train_set, train_set_target)
+        
 
         predicted = []
 	test_set_target = []
 	correctly_classified = 0
 	all_classified = 0
 	for test_elem, test_target in test_set:
-		#test_profiles = semantic_model.inferProfiles([test_elem])
-                test_profiles = semantic_model.inferProfiles([test_elem], initialize_document_profiles=True, num_iters=10, update_word_profiles=False)
-		test_profiles = list(test_profiles)
+                #test_profiles = semantic_model.inferProfiles([test_elem])
+	        test_profile = semantic_model.inferProfile(test_elem, num_iters=10, learning_rate=0.001, regularization_factor=0.01)
 		#dists, indices = neigh.kneighbors([test_profile])
 		#prediction, _ = find_closest_category(train_set_target, dists[0], indices[0])
-		#print next(test_profiles)
-		#print test_target
-		#print len(list(test_profiles)[0]) > 0, file_name, test_target
-                test_profile = test_profiles[0]
-                #print test_profile
 		if len(test_profile) > 0:
-			prediction = rfClf.predict(test_profiles)[0]
-                        #predictions = predictions.argpartition(num_labels)[:num_labels]
+			prediction = clf.predict([test_profile])[0]
 
                         predicted.append(prediction)
 			test_set_target.append(test_target)
@@ -159,7 +155,7 @@ def calculate_classification_accuracy(train_set, train_set_target, test_set, sem
 			all_classified += 1
 
 	accuracy = str(float(correctly_classified) / all_classified)
-	print "Classification accuracy: " + accuracy
+	print "Classification accuracy: %s, positive: %s, all: %s" % (accuracy, correctly_classified, all_classified)
 	#print "Accuracy score: " + str(accuracy_score(test_set_target, predicted))
 
 	return test_set_target, predicted
@@ -292,18 +288,20 @@ def test_accuracy(semantic_model, db, current_epoch, result_filename):
 		for profile, label in labeled_documents:
 			labeled_profiles.append(profile)
 			labels.append(label)
+        class Doc:
+		def __init__(self, tokenized_text):
+			self.tokenized_text = tokenized_text
+                        self.word_weights = semantic_model.calculateWordWeights(self.tokenized_text)
+
+        rowmapper = lambda row: (row['rawtext'], row['category'])
+	
 	
 	#gensim
 
 	#labeled_profiles, labels, semantic_model = getLabeledSetGensim(num_features=50)
-	#print labeled_profiles, labels
-	class Doc:
-		def __init__(self, tokenized_text):
-			self.tokenized_text = tokenized_text
-
-	query = "SELECT rawtext, category FROM pap_papers_view where published = 1 and learned_category is null"
-	rowmapper = lambda row: (Doc(tokenize(row['rawtext']).split()), row['category'])
-	#rowmapper = lambda row: (tokenize(row['rawtext']).split(), row['category'])
+        #rowmapper = lambda row: (tokenize(row['rawtext']).split(), row['category'])
+        
+        query = "SELECT rawtext, category FROM pap_papers_view where published = 1 and learned_category is null"
 	y_test, y_pred = [], []
 	with LocalDocumentGenerator(query, rowmapper) as unlabeled_documents:
 		y_test, y_pred = calculate_classification_accuracy(labeled_profiles, labels, unlabeled_documents, semantic_model)
@@ -331,56 +329,66 @@ def test_accuracy(semantic_model, db, current_epoch, result_filename):
 
 	#plt.show()
 
-def testAccuracyGensim():
-	pass
+def testAccuracyGensim(num_features, min_df, max_df):
+        labeled_profiles, labels, semantic_model = getLabeledSetGensim(num_features=num_features, min_df=min_df, max_df=max_df)
+        rowmapper = lambda row: (tokenize(row['rawtext']).split(), row['category'])
+        
+        query = "SELECT rawtext, category FROM pap_papers_view where published = 1 and learned_category is null"
+	y_test, y_pred = [], []
+	with LocalDocumentGenerator(query, rowmapper) as unlabeled_documents:
+		y_test, y_pred = calculate_classification_accuracy(labeled_profiles, labels, unlabeled_documents, semantic_model)
+		#classify(labeled_profiles, labels, unlabeled_documents)
 
 if __name__ == "__main__":
 	db = MySQLdb.connect(host='127.0.0.1', user='root',
                          passwd='1qaz@WSX', db='test')
-
+        iterative = True
 	#insert_all(db, rootdir_test, 1)
 	#insert_all(db, rootdir_train, 0)
-
 		
-	accuracy_result_filename = 'accuracy_result.csv'
-	model_snapshot_filename = 'semantic_model.snapshot'
-	num_features = 50
+	num_features = 100
 	
+	if iterative:
+		accuracy_result_filename = 'accuracy_result.csv'
+		model_snapshot_filename = 'semantic_model.snapshot'
+
+		#semantic_model = SemanticModel.load(model_snapshot_filename, doc_filter="published = 1 and learned_category is not null", 
+	        #                                    learning_rate=0.005, regularization_factor=0.01)
+		#semantic_model.tester = lambda epoch: test_accuracy(semantic_model, db, epoch, accuracy_result_filename)
+		#semantic_model.tester(10)
 	
-	#semantic_model = SemanticModel.load(model_snapshot_filename, where="published = 1 and learned_category is not null")
-	#semantic_model.tester = lambda epoch: test_accuracy(semantic_model, db, epoch, accuracy_result_filename)
-	#semantic_model.tester(10)
+		start_time = time.time()
 	
-	start_time = time.time()
-	
-	#import cProfile
-	#cProfile.run('test_accuracy(None, db, 10, accuracy_result_filename)', 'teststats')
-	#test_accuracy(None, db, 10, accuracy_result_filename)
+		#import cProfile
+		#cProfile.run('test_accuracy(None, db, 10, accuracy_result_filename)', 'teststats')
+		#test_accuracy(None, db, 10, accuracy_result_filename)
 
 	
-        	
-	semantic_model = SemanticModel(num_features=num_features, file_name=model_snapshot_filename, 
-								   #where="published = 1 and learned_category is not null", min_df=20, max_df=0.33)
-								   where="published = 1 and learned_category is not null", min_df=0.002, max_df=0.33)
-								   #tester = lambda epoch: test_accuracy(semantic_model, db, epoch, accuracy_result_filename))
+                	
+		semantic_model = SemanticModel(num_features=num_features, file_name=model_snapshot_filename, learning_rate=0.002, regularization_factor=0.01,
+                                               neg_weights=3.0, doc_prof_low=-0.01, doc_prof_high=0.01, word_prof_low=-0.01, word_prof_high=0.01,
+                                               document_batch_size=5000, db_window_size=5000,
+					       #where="published = 1 and learned_category is not null", min_df=20, max_df=0.33)
+					       doc_filter="published = 1 and learned_category is not null", min_df=0.002, max_df=0.33,
+					       tester = lambda epoch: test_accuracy(semantic_model, db, epoch, accuracy_result_filename), test_frequency=5)
 	
-	#import cProfile
-	#pr = cProfile.Profile()
-	#pr.enable()
+		#import cProfile
+		#pr = cProfile.Profile()
+		#pr.enable()
         
-	try:
-		semantic_model.train()
-		#cProfile.run('semantic_model.train()', 'teststats')
-		pass
-	except (KeyboardInterrupt, SystemExit):
-		semantic_model.save(save_words=True)
-		print "Saved"
-		raise
-	finally:
-                """
-		pr.disable()
-		pr.dump_stats('teststats1')
-                """
-		print "Training total time: " + str(time.time() - start_time)
-		db.close()
+		try:
+			semantic_model.train()
+			#cProfile.run('semantic_model.train()', 'teststats')
+			pass
+		except (KeyboardInterrupt, SystemExit):
+			semantic_model.save(save_words=True)
+			print "Saved"
+			raise
+		finally:
+			#pr.disable()
+			#pr.dump_stats('teststats1')
+			print "Training total time: " + str(time.time() - start_time)
+			db.close()
+	else:
+		testAccuracyGensim(num_features, 0.002, 0.33)
 	
