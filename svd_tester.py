@@ -14,13 +14,15 @@ from nifty.text import tokenize
 from sklearn.metrics import confusion_matrix, accuracy_score
 import itertools
 import matplotlib.pyplot as plt
-from semantic_model import SemanticModel, DocumentIterator
+from semantic_model import SemanticModel, DocumentIterator, InMemoryDocumentIterator
 import datetime
 from sklearn.ensemble import RandomForestClassifier
 from training_set_expansion import getLabeledSetGensim, LocalDocumentGenerator
 import time
 from sklearn.multiclass import OneVsRestClassifier
 from sklearn.linear_model import Perceptron
+from sklearn.datasets import fetch_20newsgroups
+from sklearn import metrics
 
 rootdir = '/home/clasocki/20news-bydate/'
 rootdir_test = rootdir + '20news-bydate-test'
@@ -329,6 +331,17 @@ def test_accuracy(semantic_model, db, current_epoch, result_filename):
 
 	#plt.show()
 
+def testAccuracyIter(semantic_model, data_train, data_test):
+    X_train = numpy.asarray([semantic_model.inferProfile(x, num_iters=10, learning_rate=0.005, regularization_factor=0.00) for x in data_train.data])
+    X_test = numpy.asarray([semantic_model.inferProfile(x, num_iters=10, learning_rate=0.005, regularization_factor=0.00) for x in data_test.data])
+    y_train, y_test = data_train.target, data_test.target
+    clf = Perceptron(n_iter=50)
+    clf.fit(X_train, y_train)
+    pred = clf.predict(X_test)
+    score = metrics.accuracy_score(y_test, pred)
+    print("accuracy:   %0.3f" % score)
+
+
 def testAccuracyGensim(num_features, min_df, max_df):
         labeled_profiles, labels, semantic_model = getLabeledSetGensim(num_features=num_features, min_df=min_df, max_df=max_df)
         rowmapper = lambda row: (tokenize(row['rawtext']).split(), row['category'])
@@ -362,15 +375,36 @@ if __name__ == "__main__":
 		#import cProfile
 		#cProfile.run('test_accuracy(None, db, 10, accuracy_result_filename)', 'teststats')
 		#test_accuracy(None, db, 10, accuracy_result_filename)
+                
+                
+                categories = [
+                    'alt.atheism',
+                    'talk.religion.misc',
+                    'comp.graphics',
+                    'sci.space',
+                    #'rec.motorcycles',
+                    #'sci.electronics',
+                    #'sci.med',
+                    #'talk.politics.guns',
+                    #'rec.autos'
+                ]
 
-	
-                	
-		semantic_model = SemanticModel(num_features=num_features, file_name=model_snapshot_filename, learning_rate=0.002, regularization_factor=0.01,
+                data_train = fetch_20newsgroups(subset='train', categories=categories,
+                                shuffle=True, random_state=42, remove = ('headers',))# 'footers', 'quotes'))
+                data_test = fetch_20newsgroups(subset='test', categories=categories,
+                                shuffle=True, random_state=42, remove = ('headers',))# 'footers', 'quotes'))
+
+	        training_set_iterator = InMemoryDocumentIterator(data_set=data_train.data)
+                test_set_iterator = InMemoryDocumentIterator(data_set=data_test.data)
+                #document_iterator = DocumentIterator(doc_filter="published = 1 and learned_category is not null", 
+                #                                     document_batch_size=5000, db_window_size=5000)
+ 	
+		semantic_model = SemanticModel(document_iterator=training_set_iterator, num_features=num_features, file_name=model_snapshot_filename, 
+                                               learning_rate=0.005, regularization_factor=0.00,
                                                neg_weights=3.0, doc_prof_low=-0.01, doc_prof_high=0.01, word_prof_low=-0.01, word_prof_high=0.01,
-                                               document_batch_size=5000, db_window_size=5000,
-					       #where="published = 1 and learned_category is not null", min_df=20, max_df=0.33)
-					       doc_filter="published = 1 and learned_category is not null", min_df=0.002, max_df=0.33,
-					       tester = lambda epoch: test_accuracy(semantic_model, db, epoch, accuracy_result_filename), test_frequency=5)
+					       min_df=0.002, max_df=0.33, save_model=False, test_frequency=4, with_validation_set=False,
+                                               tester=lambda epoch: testAccuracyIter(semantic_model, data_train, data_test))
+					       #tester = lambda epoch: test_accuracy(semantic_model, db, epoch, accuracy_result_filename), test_frequency=5)
 	
 		#import cProfile
 		#pr = cProfile.Profile()

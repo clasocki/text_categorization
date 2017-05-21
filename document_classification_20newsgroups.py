@@ -54,7 +54,7 @@ from sklearn import metrics
 from training_set_expansion import getLabeledSetGensim, LocalDocumentGenerator
 import gensim_tests
 from nifty.text import tokenize
-from semantic_model import SemanticModel
+from semantic_model import SemanticModel, DocumentIterator
 
 # Display progress logs on stdout
 logging.basicConfig(level=logging.INFO,
@@ -171,13 +171,16 @@ else:
                                  stop_words='english')
     X_train = vectorizer.fit_transform(data_train.data)
 
-#semantic_model = gensim_tests.SemanticModel.build((tokenize(text).split() for text in data_train.data), 200, 
-#			                          0.002 * len(data_train.data), 0.33 * len(data_train.data))
-#X_train = np.asarray([semantic_model.inferProfile(tokenize(x).split()) for x in data_train.data])
-iter_semantic_model = SemanticModel.load('semantic_model.snapshot', doc_filter="published = 1 and learned_category is not null", 
+semantic_model = gensim_tests.SemanticModel.build((tokenize(text).split() for text in data_train.data), 200, 
+			                          0.002 * len(data_train.data), 0.33 * len(data_train.data))
+X_train = np.asarray([semantic_model.inferProfile(tokenize(x).split()) for x in data_train.data])
+"""
+document_iterator = DocumentIterator(doc_filter="published = 1 and learned_category is not null", 
+                                     document_batch_size=5000, db_window_size=5000)
+iter_semantic_model = SemanticModel.load('semantic_model.snapshot', document_iterator=document_iterator, 
                                     learning_rate=0.005, regularization_factor=0.01)
 X_train = np.asarray([iter_semantic_model.inferProfile(x, num_iters=20, learning_rate=0.001, regularization_factor=0.01) for x in data_train.data])
-"""
+
 query = "SELECT profile, learned_category FROM pap_papers_view WHERE published = 1 and profile is not null and learned_category is not null"
 X_train, y_train = [], []
 
@@ -198,8 +201,8 @@ print()
 print("Extracting features from the test data using the same vectorizer")
 t0 = time()
 X_test = vectorizer.transform(data_test.data)
-#X_test = np.asarray([semantic_model.inferProfile(tokenize(x).split()) for x in data_test.data])
-X_test = np.asarray([iter_semantic_model.inferProfile(x, num_iters=20, learning_rate=0.001, regularization_factor=0.01) for x in data_test.data])
+X_test = np.asarray([semantic_model.inferProfile(tokenize(x).split()) for x in data_test.data])
+#X_test = np.asarray([iter_semantic_model.inferProfile(x, num_iters=20, learning_rate=0.001, regularization_factor=0.01) for x in data_test.data])
 duration = time() - t0
 print("done in %fs at %0.3fMB/s" % (duration, data_test_size_mb / duration))
 print("n_samples: %d, n_features: %d" % X_test.shape)
