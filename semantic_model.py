@@ -29,12 +29,11 @@ class Document(object):
         self.profile = None
 
 class DocumentIterator(object):
-    def __init__(self, doc_filter, document_batch_size, db_window_size):
+    def __init__(self, doc_filter, document_batch_size=None, db_window_size=None):
         self.current_record_offset = 0
         self.DOCUMENT_BATCH_SIZE = document_batch_size
         self.DB_WINDOW_SIZE = db_window_size
         self.doc_filter = doc_filter
-        self.calculateWordWeights = None
 
     def getRandomDocumentsFromDb(self):
         query = "SELECT * FROM " + \
@@ -86,12 +85,19 @@ class DocumentIterator(object):
 
             self.current_record_offset += self.DB_WINDOW_SIZE
 
-    def getAll(self):
+    def getAll(self, convert=None):
         query = "SELECT * FROM pap_papers_view WHERE " + self.doc_filter
 
         all_documents = Paper.selectRaw(query)
 
-        return self.processDocuments(all_documents)
+        return self.processDocuments(all_documents, convert)
+    
+    def getAllByIds(self, document_ids, convert=None):
+        query = "SELECT * FROM pap_papers_view WHERE " + self.doc_filter + " AND id in (" + ','.join(str(doc_id) for doc_id in document_ids) + ")"
+
+        all_documents = Paper.selectRaw(query)
+
+        return self.processDocuments(all_documents, convert)
 
     @staticmethod
     def getAll2():
@@ -126,27 +132,27 @@ class DocumentIterator(object):
 
     #@profile
     #@numba.jit(cache=True)
-    def processDocuments(self, documents):
+    def processDocuments(self, documents, convert):
         processed_docs = []            
 
         for document in documents:
             document.tokenized_text = tokenize(document.rawtext).split()
             document.profile = numpy.asarray(document.profile)
-            document.word_weights = self.calculateWordWeights(document.id, document.tokenized_text) if self.calculateWordWeights else None
+            document.word_weights = convert(document.id, document.tokenized_text) if convert else None
 
-            if (self.calculateWordWeights and len(document.word_weights) > 0) or (not self.calculateWordWeights and len(document.tokenized_text) > 0):
+            if (convert and len(document.word_weights) > 0) or (not convert and len(document.tokenized_text) > 0):
                 processed_docs.append(document)
      
         return processed_docs
 
     #@profile
-    def batchIter(self):
+    def batchIter(self, convert=None):
         while True:
             document_batch = self.getRandomDocumentsFromDb()
             if not document_batch:
                 break
 
-            yield self.processDocuments(document_batch)
+            yield self.processDocuments(document_batch, convert)
     """
     def docByDocIter(self, doc_filter=None):
         query = "SELECT rawtext,  FROM pap_papers_view WHERE " + doc_filter if doc_filter else self.doc_filter
@@ -174,18 +180,19 @@ class InMemoryDocumentIterator(object):
 
             if (convert and len(document.word_weights) > 0) or not convert: #or (not convert and len(document.tokenized_text) > 0):
                 processed_docs.append(document)
-        random.shuffle(processed_docs) 
+        #random.shuffle(processed_docs) 
         return processed_docs
 
-    def getAll(self, convert):
+    def getAll(self, convert=None):
         return self.processDocuments(self.docs.values(), convert)
 
-    def getAllByIds(self, ids, convert):
+    def getAllByIds(self, ids, convert=None):
         return self.processDocuments((self.docs[i] for i in ids), convert)
 
-    def batchIter(self, convert):
+    def batchIter(self, convert=None):
         while True:
-            yield self.processDocuments(self.docs.values(), convert) #required as each time new words are selected
+            docs = self.processDocuments(self.docs.values(), convert) #required as each time new words are selected
+            yield docs
 
 class TermFrequencyWeight(Enum):
     RAW_FREQUENCY = 1
@@ -351,7 +358,7 @@ class SemanticModel(object):
         words = tokenize(rawtext).split()
         profile = self.getInitialDocumentProfile()
         word_weights = self.calculateRandomizedWordWeights(words)
-        
+        #print sorted([(i, w) for i, w in word_weights if w > 0])
         if not word_weights: return numpy.empty(self.num_features)
 
         for current_iter in xrange(num_iters):
@@ -407,7 +414,6 @@ class SemanticModel(object):
         num_words = self.last_active_id + 1
         total_training_set_size = self.num_docs * num_words
         sample_size = 0.2 * total_training_set_size
-        print sample_size
         sample = numpy.random.choice(total_training_set_size, sample_size, replace=False)      
         
         doc_id = lambda i: i / num_words
@@ -562,7 +568,7 @@ class SemanticModel(object):
 
     def initializeDocumentProfiles(self, documents):
         for document in documents:
-            yield self.initializeDocumentProfile(document)
+            self.initializeDocumentProfile(document)
         
     def initializeWordProfiles(self, word_ids, num_words):
         new_word_profiles = numpy.random.uniform(low=self.word_prof_low, high=self.word_prof_high, 
@@ -694,18 +700,16 @@ class SemanticModel(object):
 
         return list(word_weights.iteritems()) 
 
-    def convertDocuments(self, documents):
+    def convertDocuments(self, documents, convert):
         """
         Tokenizes and converts each document from the raw text form to the bag-of-words format
         :param documents:
         :return: list of documents in the bag-of-words format with a local id assigned
         """
         for document in documents:
-            document.word_weights = self.calculateRandomizedWordWeights(document.tokenized_text)
+            document.word_weights = convert(document.id, document.tokenized_text)
 
-            yield document
-
-        #return documents
+        return documents
 
     #@numba.jit(cache=True)
     def randomizeWordWeights(self, word_weights, word_filter):
@@ -789,11 +793,11 @@ class SemanticModel(object):
         prev_rmse2 = sys.maxint
         doc_count = 0
         docs_since_last_epoch = 0
+        all_documents = []
 
         if self.preanalyze_documents:
             all_documents = self.document_iterator.getAll(convert=None)
-
-            all_documents = self.initializeDocumentProfiles(all_documents)
+            doc_count = len(all_documents)
             self.updateStatisticsForNewDocuments(all_documents)
             kept_indices, added_indices, removed_indices = self.limit_words()
             print "Kept: " + str(len(kept_indices)) + ", added: " + str(len(added_indices)) + ", removed: " + str(len(removed_indices))
@@ -803,16 +807,22 @@ class SemanticModel(object):
         train_doc_converter = lambda doc_id, words: self.calculateRandomizedWordWeights(words, word_filter=lambda word_id: train_word_filter(doc_id, word_id))
 
         if self.preanalyze_documents:
-            all_documents = self.document_iterator.getAll(convert=train_doc_converter)
-            doc_count = len(all_documents)
+            all_documents = self.convertDocuments(all_documents, train_doc_converter)
+            self.initializeDocumentProfiles(all_documents)
             self.current_document_batch = all_documents
             self.save(save_words=True)
             self.updated_word_ids.clear()
-        
         #while (epoch < self.min_iter or rmse_last - rmse >= self.min_improvement) and epoch < self.max_iter:
         #while num_iter is None or epoch < num_iter:
         #while True:
         for document_batch in self.document_iterator.batchIter(convert=train_doc_converter):
+            """
+            document_batch = all_documents
+            for d in document_batch:
+                d.word_weights = train_doc_converter(d.id, d.tokenized_text)
+                if not d.word_weights:
+                    document_batch.remove(d)
+            """
             self.current_document_batch = document_batch
 
             start_time = time.time()
@@ -836,7 +846,7 @@ class SemanticModel(object):
                     start_time = time.time()
                     self.tester(epoch)
                     print "Test: " + str(time.time() - start_time)
-
+                
                 training_set = self.document_iterator.getAll(convert=train_doc_converter)
                 training_set_rmse = self.calculateError(training_set)
                 rmse_results = "Training set RMSE: " + str(training_set_rmse)
@@ -849,7 +859,7 @@ class SemanticModel(object):
                     rmse_results += ", validation set RMSE: " + str(validation_set_rmse)
 
                 print rmse_results
-
+                
                 #if total_rmse > prev_rmse1 and prev_rmse1 > prev_rmse2:
                 #    break
                 prev_rmse2 = prev_rmse1
