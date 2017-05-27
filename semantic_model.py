@@ -240,7 +240,7 @@ def numbaInferProfile(word_id, weight, document_profile, word_profiles, learning
 @numba.jit(nopython=True,cache=True)
 #@numba.jit(numba.types.Tuple((numba.float64, numba.int64))(numba.typeof([(2, 3)]), numba.float64[:], numba.float64[:, :], numba.float64, numba.float64, numba.boolean, numba.boolean, numba.typeof(set([3]))), nopython=True,cache=True)
 def inferProfilesPerDocument(word_weights, document_profile, word_profiles, learning_rate, 
-                             regul_factor, update_document_profiles, update_word_profiles, updated_word_ids):
+                             regul_factor, update_document_profiles, update_word_profiles):#, updated_word_ids):
     squared_error, num_values = 0, 0
 
     for word_id, weight in word_weights:
@@ -259,8 +259,8 @@ def inferProfilesPerDocument(word_weights, document_profile, word_profiles, lear
         squared_error += error * error
         num_values += 1
 
-        if update_word_profiles:
-            updated_word_ids.add(word_id)
+        #if update_word_profiles:
+        #    updated_word_ids.add(word_id)
 
     return squared_error, num_values
 
@@ -278,14 +278,14 @@ def calculateErrorPerDocument(doc_profile, word_weights, word_profiles, regulari
     return rsse, num_values
 
 #@numba.jit(cache=True)
-def numbaInfer(documents, word_profiles, learning_rate, regul_factor, num_iters, update_document_profiles, update_word_profiles, updated_word_ids):
+def numbaInfer(documents, word_profiles, learning_rate, regul_factor, num_iters, update_document_profiles, update_word_profiles):#, updated_word_ids):
     for current_iter in xrange(num_iters):
         squared_approx_error = 0.0
         num_words = 0
 
         for document in documents:
             err, num_w = inferProfilesPerDocument(document.word_weights, document.profile, word_profiles, 
-                learning_rate, regul_factor, update_document_profiles, update_word_profiles, updated_word_ids)
+                learning_rate, regul_factor, update_document_profiles, update_word_profiles) #, updated_word_ids)
             
             squared_approx_error += err
             num_words += num_w
@@ -302,7 +302,7 @@ class SemanticModel(object):
         min_df=0.0, max_df=1.0, learning_rate=0.001, regularization_factor=0.01, 
         neg_weights=3.0, doc_prof_low=-0.01, doc_prof_high=0.01, word_prof_low=-0.01, word_prof_high=0.01, 
         limit_features=True, preanalyze_documents=True, tester=None, save_frequency=40, test_frequency=40, save_model=True,
-        with_validation_set=False):
+        with_validation_set=False, save_to_db=True):
         """
         :param num_features: number of features inferred from the document set
         :param file_name: the file used for the serialization
@@ -339,6 +339,7 @@ class SemanticModel(object):
         self.save_model = save_model
         self.with_validation_set = with_validation_set
         self.validation_set = None
+        self.save_to_db = save_to_db
         self.word_profiles = numpy.random.uniform(low=-0.01, high=0.01, size=(1, self.num_features))
         #self.document_iterator = DocumentIterator(doc_filter=doc_filter, document_batch_size=document_batch_size, 
         #                                          db_window_size=db_window_size, calculateWordWeights=self.calculateWordWeights)
@@ -347,7 +348,7 @@ class SemanticModel(object):
         self.id_to_token = dict()
         self.doc_freqs = defaultdict(int)  # token id -> the number of documents this token appears in
         self.last_active_id = -1 #describes the last active id
-        self.updated_word_ids = set()
+        #self.updated_word_ids = set()
         self.word_id_to_document_ids = defaultdict(list)
         #self.active_tokens = SortedSet() # set of tokens that aren't too rare or too common, 
                                    # i.e. they exist in (for float) 
@@ -363,7 +364,7 @@ class SemanticModel(object):
 
         for current_iter in xrange(num_iters):
             inferProfilesPerDocument(word_weights, profile, self.word_profiles, learning_rate, 
-                                 regularization_factor, update_document_profiles=True, update_word_profiles=False, updated_word_ids=set([-1]))
+                                 regularization_factor, update_document_profiles=True, update_word_profiles=False)#, updated_word_ids=set([-1]))
 
         return profile
 
@@ -388,7 +389,7 @@ class SemanticModel(object):
         if num_iters > 1:
             documents = list(documents)
 
-        self.updated_word_ids.add(-1)
+        #self.updated_word_ids.add(-1)
         
         for current_iter in xrange(num_iters):
             squared_approx_error = 0.0
@@ -396,14 +397,14 @@ class SemanticModel(object):
 
             for document in documents:
                 err, num_w = inferProfilesPerDocument(document.word_weights, document.profile, self.word_profiles, 
-                    self.learning_rate, self.regularization_factor, update_document_profiles, update_word_profiles, self.updated_word_ids)
+                    self.learning_rate, self.regularization_factor, update_document_profiles, update_word_profiles)#, self.updated_word_ids)
             
                 squared_approx_error += err
                 num_words += num_w
            
             rmse = numpy.sqrt(squared_approx_error / num_words) if num_words > 0 else 0.0
 
-        self.updated_word_ids.remove(-1)            
+        #self.updated_word_ids.remove(-1)            
 
         return (document.profile for document in documents)
     
@@ -464,11 +465,11 @@ class SemanticModel(object):
         """
         start_time = time.time()
         #self.inferProfiles(documents, update_document_profiles=False, initialize_word_profiles=True, num_iters=num_iters_partial_retrain, print_stats=True)
-        self.updateStatisticsForNewDocuments(documents)       
+        new_word_ids = self.updateStatisticsForNewDocuments(documents)       
         # czy w tym momencie trzeba zapisac statystyki mapowan miedzy slowami a dokumentami
         # ponizsze obliczenia bazuja teraz tylko na starych danych 
         print "Limiting the number of words..."
-        kept_word_ids, added_word_ids, removed_word_ids = self.limit_words()
+        kept_word_ids, added_word_ids, removed_word_ids = self.limit_words(new_word_ids)
         print "Kept: " + str(len(kept_word_ids)) + ", added: " + str(len(added_word_ids)) + ", removed: " + str(len(removed_word_ids))
         """
         print "Updating model based on added words"
@@ -555,7 +556,9 @@ class SemanticModel(object):
         num_tokens_after_update = len(self.token_to_id)
         num_new_tokens = num_tokens_after_update - num_tokens_before_update
 
-        self.updated_word_ids.update(xrange(num_tokens_before_update, num_new_tokens))
+        #self.updated_word_ids.update(xrange(num_tokens_before_update, num_new_tokens))
+        new_word_ids = set(xrange(num_tokens_before_update, num_new_tokens))
+        return new_word_ids
         #self.compactify(added_ids=range(tokens_before_update, num_new_tokens), removed_ids=[])
 
     def getInitialDocumentProfile(self):
@@ -614,7 +617,7 @@ class SemanticModel(object):
         self.token_to_id = dict((token, id_map[token_id]) for token, token_id in self.token_to_id.iteritems())
         self.id_to_token = dict((id_map[token_id], token) for token_id, token in self.id_to_token.iteritems())
         self.doc_freqs = defaultdict(int, ((id_map[token_id], freq) for token_id, freq in self.doc_freqs.iteritems()))
-        self.updated_word_ids = set(id_map[token_id] for token_id in self.updated_word_ids)
+        #self.updated_word_ids = set(id_map[token_id] for token_id in self.updated_word_ids)
         self.word_id_to_document_ids = defaultdict(list, ((id_map[token_id], doc_ids) for token_id, doc_ids in self.word_id_to_document_ids.iteritems()))
 
         for token_id in active_tokens_without_removed:
@@ -630,7 +633,7 @@ class SemanticModel(object):
         return id_map
 
     #@profile
-    def limit_words(self):
+    def limit_words(self, new_word_ids):
         min_document_count = (self.min_df
             if isinstance(self.min_df, numbers.Integral)
             else self.min_df * self.num_docs)
@@ -657,16 +660,21 @@ class SemanticModel(object):
                 #if token_id in self.active_tokens:
                     #self.active_tokens.remove(token_id)
                     removed_ids.add(token_id)
+        other_new_word_ids = []
+        for new_word_id in new_word_ids:
+            if new_word_id not in removed_ids and new_word_id not in added_ids:
+                other_new_word_ids.append(new_word_id)
 
-        self.updated_word_ids.update(added_ids)
-        self.updated_word_ids.update(removed_ids)
+        #self.updated_word_ids.update(added_ids)
+        #self.updated_word_ids.update(removed_ids)
 
         id_map = self.compactify(added_ids, removed_ids)
         kept_ids = numpy.fromiter((id_map[kept_id] for kept_id in kept_ids), numpy.long)
         added_ids = numpy.fromiter((id_map[added_id] for added_id in added_ids), numpy.long)
         removed_ids = numpy.fromiter((id_map[removed_id] for removed_id in removed_ids), numpy.long)
+        other_new_word_ids = numpy.fromiter((id_map[new_word_id] for new_word_id in other_new_word_ids), numpy.long)
 
-        return kept_ids, added_ids, removed_ids
+        return kept_ids, added_ids, removed_ids, other_new_word_ids
 
     def calculateTfIdf(self, words, word_filter=lambda word_id: True):
         bag_of_words = defaultdict(int)
@@ -794,12 +802,13 @@ class SemanticModel(object):
         doc_count = 0
         docs_since_last_epoch = 0
         all_documents = []
+        kept_indices, added_indices, removed_indices, other_indices = None, None, None, None
 
         if self.preanalyze_documents:
             all_documents = self.document_iterator.getAll(convert=None)
             doc_count = len(all_documents)
-            self.updateStatisticsForNewDocuments(all_documents)
-            kept_indices, added_indices, removed_indices = self.limit_words()
+            new_word_ids = self.updateStatisticsForNewDocuments(all_documents)
+            kept_indices, added_indices, removed_indices, other_indices = self.limit_words(new_word_ids)
             print "Kept: " + str(len(kept_indices)) + ", added: " + str(len(added_indices)) + ", removed: " + str(len(removed_indices))
             
         validation_set = self.createValidationSet()
@@ -810,8 +819,7 @@ class SemanticModel(object):
             all_documents = self.convertDocuments(all_documents, train_doc_converter)
             self.initializeDocumentProfiles(all_documents)
             self.current_document_batch = all_documents
-            self.save(save_words=True)
-            self.updated_word_ids.clear()
+            self.save(save_words=True, word_ids=itertools.chain(added_indices, removed_indices, other_indices))
         #while (epoch < self.min_iter or rmse_last - rmse >= self.min_improvement) and epoch < self.max_iter:
         #while num_iter is None or epoch < num_iter:
         #while True:
@@ -830,8 +838,7 @@ class SemanticModel(object):
             inference_time = time.time() - start_time
             
             start_time = time.time()
-            self.save(save_words=(epoch % self.save_frequency == 0 and epoch != 0))
-            self.updated_word_ids.clear()
+            self.save(save_words=(epoch % self.save_frequency == 0 and epoch != 0), word_ids=xrange(self.last_active_id + 1))
 
             saving_time = time.time() - start_time
             docs_since_last_epoch += len(document_batch)
@@ -844,7 +851,7 @@ class SemanticModel(object):
             if epoch % self.test_frequency == 0:
                 if self.tester:
                     start_time = time.time()
-                    self.tester(epoch)
+                    self.tester(self)
                     print "Test: " + str(time.time() - start_time)
                 
                 training_set = self.document_iterator.getAll(convert=train_doc_converter)
@@ -871,7 +878,7 @@ class SemanticModel(object):
                 break
             
 
-    def save_old(self, save_words):
+    def saveToFile(self, save_words):
         """
         Serializes the model to an external file.
         The document profiles are automatically saved to the db during updates,
@@ -879,8 +886,8 @@ class SemanticModel(object):
         :return:
         """
 
-        if self.current_document_batch is not None:
-            self.document_iterator.saveDocumentProfilesToDb(self.current_document_batch)
+        #if self.current_document_batch is not None:
+        #    self.document_iterator.saveDocumentProfilesToDb(self.current_document_batch)
 
         if not save_words:
             return
@@ -908,11 +915,14 @@ class SemanticModel(object):
 
                 f.write(word_stats_line)
 
-        self.updated_word_ids.clear()
-
-    def save(self, save_words):
+    def save(self, save_words, word_ids=None):
         if not self.save_model: return
+        if self.save_to_db:
+            self.saveToDb(save_words, word_ids)
+        else:
+            self.saveToFile(save_words)
 
+    def saveToDb(self, save_words, word_ids=None):
         if self.current_document_batch is not None:
             self.document_iterator.saveDocumentProfilesToDb(self.current_document_batch)
 
@@ -934,7 +944,9 @@ class SemanticModel(object):
 
         sql_tuples = []
 
-        for local_token_id in self.updated_word_ids:
+        if not word_ids: word_ids = xrange(self.last_active_id + 1)
+
+        for local_token_id in word_ids:
             token = self.id_to_token[local_token_id]
             df = self.doc_freqs[local_token_id]
             #is_active = int(local_token_id in self.active_tokens)
@@ -1000,7 +1012,7 @@ class SemanticModel(object):
             json.dump(model_data, fp)
 
     @staticmethod
-    def load(file_name, document_iterator):
+    def load(file_name, document_iterator, word_profiles_in_db=True):
         """
         :param file_name: serialized model file name
         :return: SemanticModel based on the serialized data
@@ -1009,7 +1021,7 @@ class SemanticModel(object):
         semantic_model = None
 
         with open(file_name, 'r') as f:
-            snapshot_reader = SemanticModelSnapshotReader(f, db, word_profiles_in_db=True)
+            snapshot_reader = SemanticModelSnapshotReader(f, db, word_profiles_in_db)
 
             num_features, num_words, num_active_words, num_docs, min_df, max_df = snapshot_reader.readGeneralStats()
 

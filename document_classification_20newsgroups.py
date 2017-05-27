@@ -175,9 +175,9 @@ semantic_model = gensim_tests.SemanticModel.build((tokenize(text).split() for te
 			                          0.002 * len(data_train.data), 0.33 * len(data_train.data))
 X_train = np.asarray([semantic_model.inferProfile(tokenize(x).split()) for x in data_train.data])
 """
-document_iterator = DocumentIterator(doc_filter="published = 1 and learned_category is not null", 
-                                     document_batch_size=5000, db_window_size=5000)
-iter_semantic_model = SemanticModel.load('semantic_model.snapshot', document_iterator=document_iterator)
+#document_iterator = DocumentIterator(doc_filter="published = 1 and learned_category is not null", 
+#                                     document_batch_size=5000, db_window_size=5000)
+iter_semantic_model = SemanticModel.load('semantic_model.snapshot', document_iterator=None, word_profiles_in_db=False)
 X_train = np.asarray([iter_semantic_model.inferProfile(x, num_iters=20, learning_rate=0.001, regularization_factor=0.01) for x in data_train.data])
 print(X_train)
 """

@@ -14,13 +14,14 @@ from nifty.text import tokenize
 from sklearn.metrics import confusion_matrix, accuracy_score
 import itertools
 import matplotlib.pyplot as plt
-from semantic_model import SemanticModel, DocumentIterator
+from semantic_model import SemanticModel, InMemoryDocumentIterator, DocumentIterator
 import datetime
 from sklearn.ensemble import RandomForestClassifier
 from training_set_expansion import getLabeledSetGensim, LocalDocumentGenerator
 import time
 from sklearn.multiclass import OneVsRestClassifier
 from sklearn.linear_model import Perceptron
+from sklearn.datasets import fetch_20newsgroups
 
 rootdir = '/home/clasocki/20news-bydate/'
 rootdir_test = rootdir + '20news-bydate-test'
@@ -329,6 +330,17 @@ def test_accuracy(semantic_model, db, current_epoch, result_filename):
 
 	#plt.show()
 
+def testAccuracyIter(x, data_train, data_test):
+    model = SemanticModel.load('semantic_model.snapshot', document_iterator=None, word_profiles_in_db=False)
+    X_train = numpy.asarray([model.inferProfile(x, num_iters=20, learning_rate=0.001, regularization_factor=0.01) for x in data_train.data])
+    X_test = numpy.asarray([model.inferProfile(x, num_iters=20, learning_rate=0.001, regularization_factor=0.01) for x in data_test.data])
+    y_train, y_test = data_train.target, data_test.target
+    clf = Perceptron(n_iter=50)
+    clf.fit(X_train, y_train)
+    pred = clf.predict(X_test)
+    score = accuracy_score(y_test, pred)
+    print("accuracy:   %0.3f" % score)
+
 def testAccuracyGensim(num_features, min_df, max_df):
         labeled_profiles, labels, semantic_model = getLabeledSetGensim(num_features=num_features, min_df=min_df, max_df=max_df)
         rowmapper = lambda row: (tokenize(row['rawtext']).split(), row['category'])
@@ -338,8 +350,7 @@ def testAccuracyGensim(num_features, min_df, max_df):
 	with LocalDocumentGenerator(query, rowmapper) as unlabeled_documents:
 		y_test, y_pred = calculate_classification_accuracy(labeled_profiles, labels, unlabeled_documents, semantic_model)
 		#classify(labeled_profiles, labels, unlabeled_documents)
-
-if __name__ == "__main__":
+def test():
 	db = MySQLdb.connect(host='127.0.0.1', user='root',
                          passwd='1qaz@WSX', db='test')
         iterative = True
@@ -372,15 +383,34 @@ if __name__ == "__main__":
 					       doc_filter="published = 1 and learned_category is not null", min_df=0.002, max_df=0.33,
 					       tester = lambda epoch: test_accuracy(semantic_model, db, epoch, accuracy_result_filename), test_frequency=5)
                 """
-                training_set_iterator = DocumentIterator(doc_filter="published = 1 and learned_category is not null", 
-                                                     document_batch_size=5000, db_window_size=5000)
+                
+
+                categories = [
+                    'alt.atheism',
+                    'talk.religion.misc',
+                    'comp.graphics',
+                    'sci.space',
+                    'rec.motorcycles',
+                    'sci.electronics',
+                    'sci.med',
+                    'talk.politics.guns',
+                    'rec.autos'
+                ]
+                data_train = fetch_20newsgroups(subset='train', categories=categories,
+                                shuffle=True, random_state=42, remove = ())# 'footers', 'quotes'))
+                data_test = fetch_20newsgroups(subset='test', categories=categories,
+                                shuffle=True, random_state=42, remove = ())# 'footers', 'quotes'))
+
+	        training_set_iterator = InMemoryDocumentIterator(data_set=data_train.data)
+                #training_set_iterator = DocumentIterator(doc_filter="published = 1 and learned_category is not null", 
+                #                                     document_batch_size=5000, db_window_size=5000)
  	
 		semantic_model = SemanticModel(document_iterator=training_set_iterator, num_features=num_features, file_name=model_snapshot_filename, 
                                                learning_rate=0.002, regularization_factor=0.01,
                                                neg_weights=3.0, doc_prof_low=-0.01, doc_prof_high=0.01, word_prof_low=-0.01, word_prof_high=0.01,
-					       min_df=0.002, max_df=0.33, save_model=True,  with_validation_set=False,
-                                               #tester=lambda epoch: testAccuracyIter(semantic_model, data_train, data_test))
-					       tester = lambda epoch: test_accuracy(semantic_model, db, epoch, accuracy_result_filename), test_frequency=5)	
+					       min_df=0.002, max_df=0.33, test_frequency=5, save_model=True,  with_validation_set=False, save_to_db=False,
+                                               tester=lambda model: testAccuracyIter(model, data_train, data_test))
+					       #tester = lambda epoch: test_accuracy(semantic_model, db, epoch, accuracy_result_filename))	
 		#import cProfile
 		#pr = cProfile.Profile()
 		#pr.enable()
@@ -400,4 +430,7 @@ if __name__ == "__main__":
 			db.close()
 	else:
 		testAccuracyGensim(num_features, 0.002, 0.33)
-	
+
+
+if __name__ == "__main__":
+	test()
