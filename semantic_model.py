@@ -846,7 +846,6 @@ class SemanticModel(object):
                
             #if (doc_count and docs_since_last_epoch >= doc_count) or not doc_count:
             #    docs_since_last_epoch = 0
-            epoch += 1
 
             if epoch % self.test_frequency == 0:
                 if self.tester:
@@ -872,7 +871,7 @@ class SemanticModel(object):
                 prev_rmse2 = prev_rmse1
                 prev_rmse1 = training_set_rmse
             
-                
+            epoch += 1
 
             if num_iter is not None and epoch >= num_iter:
                 break

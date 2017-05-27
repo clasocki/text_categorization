@@ -22,6 +22,7 @@ import time
 from sklearn.multiclass import OneVsRestClassifier
 from sklearn.linear_model import Perceptron
 from sklearn.datasets import fetch_20newsgroups
+from document_classification_20newsgroups import benchmark
 
 rootdir = '/home/clasocki/20news-bydate/'
 rootdir_test = rootdir + '20news-bydate-test'
@@ -330,17 +331,42 @@ def test_accuracy(semantic_model, db, current_epoch, result_filename):
 
 	#plt.show()
 
-def testAccuracyIter(x, data_train, data_test):
-    model = SemanticModel.load('semantic_model.snapshot', document_iterator=None, word_profiles_in_db=False)
-    X_train = numpy.asarray([model.inferProfile(x, num_iters=20, learning_rate=0.001, regularization_factor=0.01) for x in data_train.data])
-    X_test = numpy.asarray([model.inferProfile(x, num_iters=20, learning_rate=0.001, regularization_factor=0.01) for x in data_test.data])
+def testAccuracyIter(word_profiles_in_db):
+
+    categories = [
+        'alt.atheism',
+        'talk.religion.misc',
+        'comp.graphics',
+        'sci.space',
+        'rec.motorcycles',
+        'sci.electronics',
+        'sci.med',
+        'talk.politics.guns',
+        'rec.autos'
+    ]
+
+    remove = ()
+    data_train = fetch_20newsgroups(subset='train', categories=categories,
+                                shuffle=True, random_state=42,
+                                remove=remove)
+
+    data_test = fetch_20newsgroups(subset='test', categories=categories,
+                               shuffle=True, random_state=42,
+                               remove=remove)
     y_train, y_test = data_train.target, data_test.target
+    iter_semantic_model = SemanticModel.load('semantic_model.snapshot', document_iterator=None, word_profiles_in_db=word_profiles_in_db)
+    X_train = numpy.asarray([iter_semantic_model.inferProfile(x, num_iters=10, learning_rate=0.001, regularization_factor=0.01) for x in data_train.data])
+    X_test = numpy.asarray([iter_semantic_model.inferProfile(x, num_iters=10, learning_rate=0.001, regularization_factor=0.01) for x in data_test.data])
+
+    y_train, y_test = data_train.target, data_test.target
+    """
     clf = Perceptron(n_iter=50)
     clf.fit(X_train, y_train)
     pred = clf.predict(X_test)
     score = accuracy_score(y_test, pred)
     print("accuracy:   %0.3f" % score)
-
+    """
+    print benchmark(Perceptron(n_iter=50), X_train=X_train, y_train=y_train, X_test=X_test)
 def testAccuracyGensim(num_features, min_df, max_df):
         labeled_profiles, labels, semantic_model = getLabeledSetGensim(num_features=num_features, min_df=min_df, max_df=max_df)
         rowmapper = lambda row: (tokenize(row['rawtext']).split(), row['category'])
@@ -404,12 +430,14 @@ def test():
 	        training_set_iterator = InMemoryDocumentIterator(data_set=data_train.data)
                 #training_set_iterator = DocumentIterator(doc_filter="published = 1 and learned_category is not null", 
                 #                                     document_batch_size=5000, db_window_size=5000)
+                
+                save_to_db = False
  	
 		semantic_model = SemanticModel(document_iterator=training_set_iterator, num_features=num_features, file_name=model_snapshot_filename, 
-                                               learning_rate=0.002, regularization_factor=0.01,
-                                               neg_weights=3.0, doc_prof_low=-0.01, doc_prof_high=0.01, word_prof_low=-0.01, word_prof_high=0.01,
-					       min_df=0.002, max_df=0.33, test_frequency=5, save_model=True,  with_validation_set=False, save_to_db=False,
-                                               tester=lambda model: testAccuracyIter(model, data_train, data_test))
+                                               learning_rate=0.005, regularization_factor=0.01,
+                                               neg_weights=3.0, doc_prof_low=-1.0, doc_prof_high=1.0, word_prof_low=-1.0, word_prof_high=1.0,
+					       min_df=0.002, max_df=0.33, save_frequency=5, test_frequency=5, save_model=True,  with_validation_set=True, save_to_db=save_to_db,
+                                               tester=lambda model: testAccuracyIter(word_profiles_in_db=save_to_db))
 					       #tester = lambda epoch: test_accuracy(semantic_model, db, epoch, accuracy_result_filename))	
 		#import cProfile
 		#pr = cProfile.Profile()

@@ -177,9 +177,11 @@ X_train = np.asarray([semantic_model.inferProfile(tokenize(x).split()) for x in 
 """
 #document_iterator = DocumentIterator(doc_filter="published = 1 and learned_category is not null", 
 #                                     document_batch_size=5000, db_window_size=5000)
+
 iter_semantic_model = SemanticModel.load('semantic_model.snapshot', document_iterator=None, word_profiles_in_db=False)
 X_train = np.asarray([iter_semantic_model.inferProfile(x, num_iters=20, learning_rate=0.001, regularization_factor=0.01) for x in data_train.data])
-print(X_train)
+#print(X_train)
+
 """
 query = "SELECT profile, learned_category FROM pap_papers_view WHERE published = 1 and profile is not null and learned_category is not null"
 X_train, y_train = [], []
@@ -194,8 +196,8 @@ X_train = np.asarray(X_train)
 #y_test = np.asarray(data_test.target_names)[data_test.target]
 
 duration = time() - t0
-print("done in %fs at %0.3fMB/s" % (duration, data_train_size_mb / duration))
-print("n_samples: %d, n_features: %d" % X_train.shape)
+#print("done in %fs at %0.3fMB/s" % (duration, data_train_size_mb / duration))
+#print("n_samples: %d, n_features: %d" % X_train.shape)
 print()
 
 print("Extracting features from the test data using the same vectorizer")
@@ -203,10 +205,10 @@ t0 = time()
 X_test = vectorizer.transform(data_test.data)
 #X_test = np.asarray([semantic_model.inferProfile(tokenize(x).split()) for x in data_test.data])
 X_test = np.asarray([iter_semantic_model.inferProfile(x, num_iters=20, learning_rate=0.001, regularization_factor=0.01) for x in data_test.data])
-print (X_test)
+#print (X_test)
 duration = time() - t0
 print("done in %fs at %0.3fMB/s" % (duration, data_test_size_mb / duration))
-print("n_samples: %d, n_features: %d" % X_test.shape)
+#print("n_samples: %d, n_features: %d" % X_test.shape)
 print()
 
 # mapping from integer feature name to original token string
@@ -240,7 +242,7 @@ def trim(s):
 
 ###############################################################################
 # Benchmark classifiers
-def benchmark(clf):
+def benchmark(clf, X_train=X_train, y_train=y_train, X_test=X_test):
     print('_' * 80)
     print("Training: ")
     print(clf)
@@ -257,6 +259,7 @@ def benchmark(clf):
     score = metrics.accuracy_score(y_test, pred)
     print("accuracy:   %0.3f" % score)
 
+    
     if hasattr(clf, 'coef_'):
         print("dimensionality: %d" % clf.coef_.shape[1])
         print("density: %f" % density(clf.coef_))
@@ -267,7 +270,7 @@ def benchmark(clf):
                 top10 = np.argsort(clf.coef_[i])[-10:]
                 print(trim("%s: %s" % (label, " ".join(feature_names[top10]))))
         print()
-
+    
     if opts.print_report:
         print("classification report:")
         print(metrics.classification_report(y_test, pred,
@@ -281,79 +284,82 @@ def benchmark(clf):
     clf_descr = str(clf).split('(')[0]
     return clf_descr, score, train_time, test_time
 
+def testClassifiers():
+    results = []
+    for clf, name in (
+            (RidgeClassifier(tol=1e-2, solver="lsqr"), "Ridge Classifier"),
+            (Perceptron(n_iter=50), "Perceptron"),
+            (PassiveAggressiveClassifier(n_iter=50), "Passive-Aggressive"),
+            (KNeighborsClassifier(n_neighbors=10), "kNN"),
+            (KNeighborsClassifier(n_neighbors=10, algorithm='brute', metric='cosine'), "kNN cosine"),
+            (RandomForestClassifier(n_estimators=100), "Random forest")):
+        print('=' * 80)
+        print(name)
+        results.append(benchmark(clf))
 
-results = []
-for clf, name in (
-        (RidgeClassifier(tol=1e-2, solver="lsqr"), "Ridge Classifier"),
-        (Perceptron(n_iter=50), "Perceptron"),
-        (PassiveAggressiveClassifier(n_iter=50), "Passive-Aggressive"),
-        (KNeighborsClassifier(n_neighbors=10), "kNN"),
-        (KNeighborsClassifier(n_neighbors=10, algorithm='brute', metric='cosine'), "kNN cosine"),
-        (RandomForestClassifier(n_estimators=100), "Random forest")):
+    for penalty in ["l2", "l1"]:
+        print('=' * 80)
+        print("%s penalty" % penalty.upper())
+        # Train Liblinear model
+        results.append(benchmark(LinearSVC(penalty=penalty, dual=False,
+                                           tol=1e-3)))
+
+        # Train SGD model
+        results.append(benchmark(SGDClassifier(alpha=.0001, n_iter=50,
+                                               penalty=penalty)))
+
+    # Train SGD with Elastic Net penalty
     print('=' * 80)
-    print(name)
-    results.append(benchmark(clf))
-
-for penalty in ["l2", "l1"]:
-    print('=' * 80)
-    print("%s penalty" % penalty.upper())
-    # Train Liblinear model
-    results.append(benchmark(LinearSVC(penalty=penalty, dual=False,
-                                       tol=1e-3)))
-
-    # Train SGD model
+    print("Elastic-Net penalty")
     results.append(benchmark(SGDClassifier(alpha=.0001, n_iter=50,
-                                           penalty=penalty)))
+                                           penalty="elasticnet")))
 
-# Train SGD with Elastic Net penalty
-print('=' * 80)
-print("Elastic-Net penalty")
-results.append(benchmark(SGDClassifier(alpha=.0001, n_iter=50,
-                                       penalty="elasticnet")))
+    # Train NearestCentroid without threshold
+    print('=' * 80)
+    print("NearestCentroid (aka Rocchio classifier)")
+    results.append(benchmark(NearestCentroid()))
 
-# Train NearestCentroid without threshold
-print('=' * 80)
-print("NearestCentroid (aka Rocchio classifier)")
-results.append(benchmark(NearestCentroid()))
+    # Train sparse Naive Bayes classifiers
+    print('=' * 80)
+    print("Naive Bayes")
+    results.append(benchmark(MultinomialNB(alpha=.01)))
+    results.append(benchmark(BernoulliNB(alpha=.01)))
 
-# Train sparse Naive Bayes classifiers
-print('=' * 80)
-print("Naive Bayes")
-results.append(benchmark(MultinomialNB(alpha=.01)))
-results.append(benchmark(BernoulliNB(alpha=.01)))
+    print('=' * 80)
+    print("LinearSVC with L1-based feature selection")
+    # The smaller C, the stronger the regularization.
+    # The more regularization, the more sparsity.
+    results.append(benchmark(Pipeline([
+      ('feature_selection', SelectFromModel(LinearSVC(penalty="l1", dual=False,
+                                                      tol=1e-3))),
+      ('classification', LinearSVC(penalty="l2"))])))
 
-print('=' * 80)
-print("LinearSVC with L1-based feature selection")
-# The smaller C, the stronger the regularization.
-# The more regularization, the more sparsity.
-results.append(benchmark(Pipeline([
-  ('feature_selection', SelectFromModel(LinearSVC(penalty="l1", dual=False,
-                                                  tol=1e-3))),
-  ('classification', LinearSVC(penalty="l2"))])))
+    # make some plots
 
-# make some plots
+    indices = np.arange(len(results))
 
-indices = np.arange(len(results))
+    results = [[x[i] for x in results] for i in range(4)]
 
-results = [[x[i] for x in results] for i in range(4)]
+    clf_names, score, training_time, test_time = results
+    training_time = np.array(training_time) / np.max(training_time)
+    test_time = np.array(test_time) / np.max(test_time)
 
-clf_names, score, training_time, test_time = results
-training_time = np.array(training_time) / np.max(training_time)
-test_time = np.array(test_time) / np.max(test_time)
+    plt.figure(figsize=(12, 8))
+    plt.title("Score")
+    plt.barh(indices, score, .2, label="score", color='navy')
+    plt.barh(indices + .3, training_time, .2, label="training time",
+             color='c')
+    plt.barh(indices + .6, test_time, .2, label="test time", color='darkorange')
+    plt.yticks(())
+    plt.legend(loc='best')
+    plt.subplots_adjust(left=.25)
+    plt.subplots_adjust(top=.95)
+    plt.subplots_adjust(bottom=.05)
 
-plt.figure(figsize=(12, 8))
-plt.title("Score")
-plt.barh(indices, score, .2, label="score", color='navy')
-plt.barh(indices + .3, training_time, .2, label="training time",
-         color='c')
-plt.barh(indices + .6, test_time, .2, label="test time", color='darkorange')
-plt.yticks(())
-plt.legend(loc='best')
-plt.subplots_adjust(left=.25)
-plt.subplots_adjust(top=.95)
-plt.subplots_adjust(bottom=.05)
+    for i, c in zip(indices, clf_names):
+        plt.text(-.3, i, c)
 
-for i, c in zip(indices, clf_names):
-    plt.text(-.3, i, c)
+    plt.savefig('classifier_comparison.pdf')
 
-plt.savefig('classifier_comparison.pdf')
+if __name__ == "__main__":
+    testClassifiers()
