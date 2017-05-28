@@ -25,6 +25,7 @@ from sklearn.datasets import fetch_20newsgroups
 from document_classification_20newsgroups import testClassifiers
 from collections import defaultdict
 import pandas as pd
+from optparse import OptionParser
 
 rootdir = '/home/clasocki/20news-bydate/'
 rootdir_test = rootdir + '20news-bydate-test'
@@ -338,8 +339,47 @@ def test():
         iterative = True
 	#insert_all(db, rootdir_test, 1)
 	#insert_all(db, rootdir_train, 0)
-		
-	num_features = 100
+
+        op = OptionParser()
+        op.add_option("--experiment_dir",
+                      action="store", type=str, dest="experiment_dir")
+        op.add_option("--num_features",
+                      action="store", type=int, dest="num_features")
+        op.add_option("--learning_rate",
+                      action="store", type=float, dest="learning_rate")
+        op.add_option("--regul_factor",
+                      action="store", type=float, dest="regul_factor")
+        op.add_option("--zero_weights",
+                      action="store", type=float, dest="zero_weights")
+        op.add_option("--doc_prof_low",
+                      action="store", type=float, dest="doc_prof_low")
+        op.add_option("--doc_prof_high",
+                      action="store", type=float, dest="doc_prof_high")
+        op.add_option("--word_prof_low",
+                      action="store", type=float, dest="word_prof_low")
+        op.add_option("--word_prof_high",
+                      action="store", type=float, dest="word_prof_high")
+        op.add_option("--decay",
+                      action="store", type=float, dest="decay")
+        op.add_option("--min_df",
+                      action="store", type=float, dest="min_df")
+        op.add_option("--max_df",
+                      action="store", type=float, dest="max_df")
+
+        argv = sys.argv[1:]
+        (opts, args) = op.parse_args(argv)
+        print opts.experiment_dir
+        print opts.num_features
+        print opts.learning_rate
+        print opts.regul_factor
+        print opts.zero_weights
+        print opts.doc_prof_low
+	print opts.doc_prof_high
+        print opts.word_prof_low
+	print opts.word_prof_high
+        print opts.decay
+        print opts.min_df
+        print opts.max_df
 	
 	if iterative:
 		accuracy_result_filename = 'accuracy_result.csv'
@@ -368,15 +408,19 @@ def test():
                 
                 save_to_db = False
                 rmses, scores, train_times, test_times = [defaultdict(dict) for x in xrange(4)]
-		experiments_dir = 'experiments/3/'
-                model_snapshot_filename = experiments_dir + 'semantic_model.snapshot'
+                
+                if not os.path.exists(opts.experiment_dir):
+                    os.makedirs(opts.experiment_dir)
+                model_snapshot_filename = opts.experiment_dir + 'semantic_model.snapshot'
                 
                 tester = lambda current_iter, train_rmse, val_rmse: testAccuracyIter(save_to_db, train_rmse, val_rmse, current_iter, 
                         rmses, scores, train_times, test_times, model_snapshot_filename)
-		semantic_model = SemanticModel(document_iterator=training_set_iterator, num_features=num_features, file_name=model_snapshot_filename, 
-                                               learning_rate=0.005, regularization_factor=0.01,
-                                               neg_weights=3.0, doc_prof_low=-1.0, doc_prof_high=1.0, word_prof_low=-1.0, word_prof_high=1.0, decay=0.0,
-					       min_df=0.002, max_df=0.33, save_frequency=5, test_frequency=5, save_model=True,  with_validation_set=True, save_to_db=save_to_db,
+		semantic_model = SemanticModel(document_iterator=training_set_iterator, num_features=opts.num_features, file_name=model_snapshot_filename, 
+                                               learning_rate=opts.learning_rate, regularization_factor=opts.regul_factor,
+                                               neg_weights=opts.zero_weights, doc_prof_low=opts.doc_prof_low, doc_prof_high=opts.doc_prof_high, 
+                                               word_prof_low=opts.word_prof_low, word_prof_high=opts.word_prof_high, decay=opts.decay,
+					       min_df=opts.min_df, max_df=opts.max_df, save_frequency=5, test_frequency=5, 
+                                               save_model=True,  with_validation_set=True, save_to_db=save_to_db,
                                                tester=tester)
 					       #tester = lambda epoch: test_accuracy(semantic_model, db, epoch, accuracy_result_filename))	
         
@@ -386,17 +430,17 @@ def test():
 		except (KeyboardInterrupt, SystemExit):
 			raise
 		finally:
-                        pd.DataFrame(rmses).to_pickle(experiments_dir + 'rmses.pkl')
-                        pd.DataFrame(scores).to_pickle(experiments_dir + 'scores.pkl')
-                        pd.DataFrame(train_times).to_pickle(experiments_dir + 'train_times.pkl')
-                        pd.DataFrame(test_times).to_pickle(experiments_dir + 'test_times.pkl')
+                        pd.DataFrame(rmses).to_pickle(opts.experiment_dir + 'rmses.pkl')
+                        pd.DataFrame(scores).to_pickle(opts.experiment_dir + 'scores.pkl')
+                        pd.DataFrame(train_times).to_pickle(opts.experiment_dir + 'train_times.pkl')
+                        pd.DataFrame(test_times).to_pickle(opts.experiment_dir + 'test_times.pkl')
                         
 			semantic_model.save(save_words=True)
 
 			print "Training total time: " + str(time.time() - start_time)
 			db.close()
 	else:
-		testAccuracyGensim(num_features, 0.002, 0.33)
+		testAccuracyGensim(opts.num_features, 0.002, 0.33)
 
 
 if __name__ == "__main__":
