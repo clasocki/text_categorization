@@ -22,7 +22,9 @@ import time
 from sklearn.multiclass import OneVsRestClassifier
 from sklearn.linear_model import Perceptron
 from sklearn.datasets import fetch_20newsgroups
-from document_classification_20newsgroups import benchmark
+from document_classification_20newsgroups import testClassifiers
+from collections import defaultdict
+import pandas as pd
 
 rootdir = '/home/clasocki/20news-bydate/'
 rootdir_test = rootdir + '20news-bydate-test'
@@ -230,55 +232,6 @@ def classify(train_set, train_labels, test_set):
 
 #@profile
 def test_accuracy(semantic_model, db, current_epoch, result_filename):
-	#unlabeled_document_iterator = DocumentIterator(where="published = 1 and learned_category is null")
-	#unlabeled_document_iterator = DocumentIterator(where="published = 1 and year is null")
-	#document_iterator.saveDocumentProfilesToFile(file_name='document_profiles.train')   
-
-	
-	#unlabeled_documents = unlabeled_document_iterator.getAll()
-	
-	#semantic_model.inferProfiles(unlabeled_documents, update_word_profiles=False, num_iters=10, initialize_document_profiles=True)
-	#unlabeled_document_iterator.saveDocumentProfilesToDb(unlabeled_documents)
-	
-
-	#train_profiles, train_original_labels, train_rawtexts = get_documents(db, where="published = 1 and profile is not null and learned_category is not null", num_features=semantic_model.num_features)
-	#test_profiles, test_original_labels, test_rawtexts = get_documents(db, where="published = 1 and profile is not null and learned_category is null", num_features=semantic_model.num_features)
-	
-	#train_profiles, train_original_labels, train_rawtexts = get_documents(db, where="published = 1 and learned_category is not null and year is not null", num_features=semantic_model.num_features)
-	#test_profiles, test_original_labels, test_rawtexts = get_documents(db, where="published = 1 and learned_category is not null and year is null", num_features=semantic_model.num_features)
-
-	"""
-	train_profiles, train_original_labels, train_rawtexts = get_documents(db, where="published = 1 and is_test = 0", num_features=50)
-	test_profiles, test_original_labels, test_rawtexts = get_documents(db, where="published = 1 and is_test = 1", num_features=50)
-	
-	db.commit()
-
-	train_set_target = labels_text_to_id(train_original_labels)
-	test_set_target = labels_text_to_id(test_original_labels)
-	#print test_profiles[10:]
-	
-	train_tokenized_texts = [tokenize(rawtext).split() for rawtext in train_rawtexts]
-	test_tokenized_texts = [tokenize(rawtext).split() for rawtext in test_rawtexts]
-	semantic_model = gensim_tests.SemanticModel.build(train_tokenized_texts, 50, 0.002 * len(train_tokenized_texts), 0.5 * len(train_tokenized_texts))
-	train_profiles = semantic_model.inferProfiles(train_tokenized_texts)
-	test_profiles = semantic_model.inferProfiles(test_tokenized_texts)
-
-	train_set = train_profiles
-	test_set = test_profiles
-	"""
-	"""
-
-	profiles = train_profiles
-	distArray = 1 - pairwise_distances(profiles, metric='cosine')
-	print "Mean: " + str(numpy.mean(distArray))
-
-	linkage_matrix = ward(distArray)
-	derived_labels = fcluster(linkage_matrix, 3, criterion='maxclust')
-	text_clf = SVC(kernel="linear", C=0.025)
-	text_clf = text_clf.fit(train_set, train_set_target)
-
-	print "Score: " + str(text_clf.score(test_set, test_set_target))
-	"""
 
 	#iterative
 	
@@ -331,8 +284,8 @@ def test_accuracy(semantic_model, db, current_epoch, result_filename):
 
 	#plt.show()
 
-def testAccuracyIter(word_profiles_in_db):
-
+def testAccuracyIter(word_profiles_in_db, train_rmse, val_rmse, current_iter, rmses, scores, 
+        train_times, test_times, snapshot_file):
     categories = [
         'alt.atheism',
         'talk.religion.misc',
@@ -354,19 +307,22 @@ def testAccuracyIter(word_profiles_in_db):
                                shuffle=True, random_state=42,
                                remove=remove)
     y_train, y_test = data_train.target, data_test.target
-    iter_semantic_model = SemanticModel.load('semantic_model.snapshot', document_iterator=None, word_profiles_in_db=word_profiles_in_db)
-    X_train = numpy.asarray([iter_semantic_model.inferProfile(x, num_iters=10, learning_rate=0.001, regularization_factor=0.01) for x in data_train.data])
-    X_test = numpy.asarray([iter_semantic_model.inferProfile(x, num_iters=10, learning_rate=0.001, regularization_factor=0.01) for x in data_test.data])
+    iter_semantic_model = SemanticModel.load(snapshot_file, document_iterator=None, word_profiles_in_db=word_profiles_in_db)
+    X_train = numpy.asarray([iter_semantic_model.inferProfile(x, num_iters=10, learning_rate=0.002, regularization_factor=0.01) for x in data_train.data])
+    X_test = numpy.asarray([iter_semantic_model.inferProfile(x, num_iters=10, learning_rate=0.002, regularization_factor=0.01) for x in data_test.data])
 
     y_train, y_test = data_train.target, data_test.target
-    """
-    clf = Perceptron(n_iter=50)
-    clf.fit(X_train, y_train)
-    pred = clf.predict(X_test)
-    score = accuracy_score(y_test, pred)
-    print("accuracy:   %0.3f" % score)
-    """
-    print benchmark(Perceptron(n_iter=50), X_train=X_train, y_train=y_train, X_test=X_test)
+    clf_names, score, train_time, test_time = testClassifiers(X_train=X_train, y_train=y_train, X_test=X_test, y_test=y_test)
+    print score
+
+    for i, clf_name in enumerate(clf_names):
+        scores[clf_name][current_iter] = score[i]
+        train_times[clf_name][current_iter] = train_time[i]
+        test_times[clf_name][current_iter] = test_time[i]
+
+    rmses['rmse - zbior treningowy'][current_iter] = train_rmse
+    rmses['rmse - zbior walidacyjny'][current_iter] = val_rmse
+
 def testAccuracyGensim(num_features, min_df, max_df):
         labeled_profiles, labels, semantic_model = getLabeledSetGensim(num_features=num_features, min_df=min_df, max_df=max_df)
         rowmapper = lambda row: (tokenize(row['rawtext']).split(), row['category'])
@@ -387,29 +343,8 @@ def test():
 	
 	if iterative:
 		accuracy_result_filename = 'accuracy_result.csv'
-		model_snapshot_filename = 'semantic_model.snapshot'
 
-		#semantic_model = SemanticModel.load(model_snapshot_filename, doc_filter="published = 1 and learned_category is not null", 
-	        #                                    learning_rate=0.005, regularization_factor=0.01)
-		#semantic_model.tester = lambda epoch: test_accuracy(semantic_model, db, epoch, accuracy_result_filename)
-		#semantic_model.tester(10)
-	
 		start_time = time.time()
-	
-		#import cProfile
-		#cProfile.run('test_accuracy(None, db, 10, accuracy_result_filename)', 'teststats')
-		#test_accuracy(None, db, 10, accuracy_result_filename)
-
-	
-                """
-		semantic_model = SemanticModel(num_features=num_features, file_name=model_snapshot_filename, learning_rate=0.002, regularization_factor=0.01,
-                                               neg_weights=3.0, doc_prof_low=-0.01, doc_prof_high=0.01, word_prof_low=-0.01, word_prof_high=0.01,
-                                               document_batch_size=5000, db_window_size=5000,
-					       #where="published = 1 and learned_category is not null", min_df=20, max_df=0.33)
-					       doc_filter="published = 1 and learned_category is not null", min_df=0.002, max_df=0.33,
-					       tester = lambda epoch: test_accuracy(semantic_model, db, epoch, accuracy_result_filename), test_frequency=5)
-                """
-                
 
                 categories = [
                     'alt.atheism',
@@ -432,28 +367,32 @@ def test():
                 #                                     document_batch_size=5000, db_window_size=5000)
                 
                 save_to_db = False
- 	
+                rmses, scores, train_times, test_times = [defaultdict(dict) for x in xrange(4)]
+		experiments_dir = 'experiments/3/'
+                model_snapshot_filename = experiments_dir + 'semantic_model.snapshot'
+                
+                tester = lambda current_iter, train_rmse, val_rmse: testAccuracyIter(save_to_db, train_rmse, val_rmse, current_iter, 
+                        rmses, scores, train_times, test_times, model_snapshot_filename)
 		semantic_model = SemanticModel(document_iterator=training_set_iterator, num_features=num_features, file_name=model_snapshot_filename, 
                                                learning_rate=0.005, regularization_factor=0.01,
-                                               neg_weights=3.0, doc_prof_low=-1.0, doc_prof_high=1.0, word_prof_low=-1.0, word_prof_high=1.0,
+                                               neg_weights=3.0, doc_prof_low=-1.0, doc_prof_high=1.0, word_prof_low=-1.0, word_prof_high=1.0, decay=0.0,
 					       min_df=0.002, max_df=0.33, save_frequency=5, test_frequency=5, save_model=True,  with_validation_set=True, save_to_db=save_to_db,
-                                               tester=lambda model: testAccuracyIter(word_profiles_in_db=save_to_db))
+                                               tester=tester)
 					       #tester = lambda epoch: test_accuracy(semantic_model, db, epoch, accuracy_result_filename))	
-		#import cProfile
-		#pr = cProfile.Profile()
-		#pr.enable()
         
 		try:
 			semantic_model.train()
-			#cProfile.run('semantic_model.train()', 'teststats')
 			pass
 		except (KeyboardInterrupt, SystemExit):
-			semantic_model.save(save_words=True)
-			print "Saved"
 			raise
 		finally:
-			#pr.disable()
-			#pr.dump_stats('teststats1')
+                        pd.DataFrame(rmses).to_pickle(experiments_dir + 'rmses.pkl')
+                        pd.DataFrame(scores).to_pickle(experiments_dir + 'scores.pkl')
+                        pd.DataFrame(train_times).to_pickle(experiments_dir + 'train_times.pkl')
+                        pd.DataFrame(test_times).to_pickle(experiments_dir + 'test_times.pkl')
+                        
+			semantic_model.save(save_words=True)
+
 			print "Training total time: " + str(time.time() - start_time)
 			db.close()
 	else:
