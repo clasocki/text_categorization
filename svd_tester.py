@@ -26,6 +26,7 @@ from document_classification_20newsgroups import testClassifiers
 from collections import defaultdict
 import pandas as pd
 from optparse import OptionParser
+from multiprocessing import Process
 
 rootdir = '/home/clasocki/20news-bydate/'
 rootdir_test = rootdir + '20news-bydate-test'
@@ -298,6 +299,7 @@ def testAccuracyIter(word_profiles_in_db, train_rmse, val_rmse, current_iter, rm
         'talk.politics.guns',
         'rec.autos'
     ]
+    categories = None
 
     remove = ()
     data_train = fetch_20newsgroups(subset='train', categories=categories,
@@ -324,20 +326,115 @@ def testAccuracyIter(word_profiles_in_db, train_rmse, val_rmse, current_iter, rm
     rmses['rmse - zbior treningowy'][current_iter] = train_rmse
     rmses['rmse - zbior walidacyjny'][current_iter] = val_rmse
 
-def testAccuracyGensim(num_features, min_df, max_df):
-        labeled_profiles, labels, semantic_model = getLabeledSetGensim(num_features=num_features, min_df=min_df, max_df=max_df)
-        rowmapper = lambda row: (tokenize(row['rawtext']).split(), row['category'])
+def runTraining(experiment_dir, num_features, learning_rate, regularization_factor, zero_weights, doc_prof_low, doc_prof_high, 
+          word_prof_low, word_prof_high, decay, min_df, max_df, term_freq_weight, num_iter):
+    start_time = time.time()
+
+    categories = [
+        'alt.atheism',
+        'talk.religion.misc',
+        'comp.graphics',
+        'sci.space',
+        'rec.motorcycles',
+        'sci.electronics',
+        'sci.med',
+        'talk.politics.guns',
+        'rec.autos'
+    ]
+    categories = None
+    data_train = fetch_20newsgroups(subset='train', categories=categories,
+                    shuffle=True, random_state=42, remove = ())# 'footers', 'quotes'))
+    data_test = fetch_20newsgroups(subset='test', categories=categories,
+                    shuffle=True, random_state=42, remove = ())# 'footers', 'quotes'))
+
+    training_set_iterator = InMemoryDocumentIterator(data_set=data_train.data)
+    #db = MySQLdb.connect(host='127.0.0.1', user='root',
+    #                     passwd='1qaz@WSX', db='test')
+    #training_set_iterator = DocumentIterator(doc_filter="published = 1 and learned_category is not null", 
+    #                                     document_batch_size=5000, db_window_size=5000)
+    
+    save_to_db = False
+    rmses, scores, train_times, test_times = [defaultdict(dict) for x in xrange(4)]
+    
+    if not os.path.exists(experiment_dir):
+        os.makedirs(experiment_dir)
+    model_snapshot_filename = experiment_dir + '/semantic_model.snapshot'
+    
+    tester = lambda current_iter, train_rmse, val_rmse: testAccuracyIter(save_to_db, train_rmse, val_rmse, current_iter, 
+            rmses, scores, train_times, test_times, model_snapshot_filename)
+    semantic_model = SemanticModel(document_iterator=training_set_iterator, num_features=num_features, file_name=model_snapshot_filename, 
+                                   learning_rate=learning_rate, regularization_factor=regularization_factor,
+                                   neg_weights=zero_weights, doc_prof_low=doc_prof_low, doc_prof_high=doc_prof_high, 
+                                   word_prof_low=word_prof_low, word_prof_high=word_prof_high, decay=decay,
+                                   min_df=min_df, max_df=max_df, save_frequency=5, test_frequency=5, 
+                                   save_model=True,  with_validation_set=True, save_to_db=save_to_db,
+                                   term_freq_weight=term_freq_weight, tester=tester)
+                                   #tester = lambda epoch: test_accuracy(semantic_model, db, epoch, accuracy_result_filename))	
+
+    try:
+            semantic_model.train(num_iter=num_iter)
+            pass
+    except (KeyboardInterrupt, SystemExit):
+            raise
+    finally:
+            pd.DataFrame(rmses).to_pickle(experiment_dir + '/rmses.pkl')
+            pd.DataFrame(scores).to_pickle(experiment_dir + '/scores.pkl')
+            pd.DataFrame(train_times).to_pickle(experiment_dir + '/train_times.pkl')
+            pd.DataFrame(test_times).to_pickle(experiment_dir + '/test_times.pkl')
+            
+            semantic_model.save(save_words=True)
+
+            print "Training total time: " + str(time.time() - start_time)
+            #db.close()
+
+def runMultipleTests():
+    """
+    args = (experiment_dir=opts.experiment_dir, num_features=opts.num_features, learning_rate=opts.learning_rate, regularization_factor=opts.regul_factor,
+                                   zero_weights=opts.zero_weights, doc_prof_low=opts.doc_prof_low, doc_prof_high=opts.doc_prof_high, 
+                                   word_prof_low=opts.word_prof_low, word_prof_high=opts.word_prof_high, decay=opts.decay,
+          
+                                   min_df=opts.min_df, max_df=opts.max_df, term_freq_weight=opts.term_freq_weight, num_iter=opts.num_iter)
+    """
+    num_features = [200, 400,]
+    learning_rates = [0.001, 0.005]
+    regularization_factors = [0.01]
+    zero_weights = [5.0]
+    doc_prof_lows = [-1.0,]
+    doc_prof_highs = [1.0,]
+    word_prof_lows = [-1.0,]
+    word_prof_highs = [1.0,]
+    decays = [2.0]
+    min_dfs = [0.002,]
+    max_dfs = [0.33,]
+    term_freq_weights = ['log_normalization',]
+    num_iters = [100,]
+    params = [num_features, learning_rates, regularization_factors, zero_weights, doc_prof_lows, doc_prof_highs, 
+              word_prof_lows, word_prof_highs, decays, min_dfs, max_dfs, term_freq_weights, num_iters]
+    combinations = list(itertools.product(*params))
+    
+    i_start = 4
+    ps = []
+    for i, args in enumerate(combinations):
+        descr = str(i + i_start) + "__full_set__"
+        descr += "num_f=%s-learn_r=%s-regul_f=%s-zero_w=%s-doc_low=%s-doc_high=%s-word_low=%s-word_high=%s-decay=%s-min_df=%s-max_df=%s,term_w=%s-iter=%s" % args
+        experiment_dir = 'experiments/' + descr
+        if not os.path.exists(experiment_dir):
+            os.makedirs(experiment_dir)
         
-        query = "SELECT rawtext, category FROM pap_papers_view where published = 1 and learned_category is null"
-	y_test, y_pred = [], []
-	with LocalDocumentGenerator(query, rowmapper) as unlabeled_documents:
-		y_test, y_pred = calculate_classification_accuracy(labeled_profiles, labels, unlabeled_documents, semantic_model)
-		#classify(labeled_profiles, labels, unlabeled_documents)
-def test():
-	db = MySQLdb.connect(host='127.0.0.1', user='root',
-                         passwd='1qaz@WSX', db='test')
-        iterative = True
-	#insert_all(db, rootdir_test, 1)
+        with open(experiment_dir + '/cmd', 'w+') as f:
+            f.write(descr)
+        
+        ps.append(Process(target=runTraining, args=(experiment_dir, ) + args))
+        
+    for p in ps:
+        p.start()
+    
+    for p in ps:
+        p.join()
+    
+
+def testUsingOptions():
+    	#insert_all(db, rootdir_test, 1)
 	#insert_all(db, rootdir_train, 0)
 
         op = OptionParser()
@@ -365,6 +462,10 @@ def test():
                       action="store", type=float, dest="min_df")
         op.add_option("--max_df",
                       action="store", type=float, dest="max_df")
+        op.add_option("--num_iter",
+                      action="store", type=float, dest="num_iter")
+        op.add_option("--term_freq_weight",
+                      action="store", type=str, dest="term_freq_weight")
 
         argv = sys.argv[1:]
         (opts, args) = op.parse_args(argv)
@@ -381,67 +482,11 @@ def test():
         print opts.min_df
         print opts.max_df
 	
-	if iterative:
-		accuracy_result_filename = 'accuracy_result.csv'
-
-		start_time = time.time()
-
-                categories = [
-                    'alt.atheism',
-                    'talk.religion.misc',
-                    'comp.graphics',
-                    'sci.space',
-                    'rec.motorcycles',
-                    'sci.electronics',
-                    'sci.med',
-                    'talk.politics.guns',
-                    'rec.autos'
-                ]
-                data_train = fetch_20newsgroups(subset='train', categories=categories,
-                                shuffle=True, random_state=42, remove = ())# 'footers', 'quotes'))
-                data_test = fetch_20newsgroups(subset='test', categories=categories,
-                                shuffle=True, random_state=42, remove = ())# 'footers', 'quotes'))
-
-	        training_set_iterator = InMemoryDocumentIterator(data_set=data_train.data)
-                #training_set_iterator = DocumentIterator(doc_filter="published = 1 and learned_category is not null", 
-                #                                     document_batch_size=5000, db_window_size=5000)
-                
-                save_to_db = False
-                rmses, scores, train_times, test_times = [defaultdict(dict) for x in xrange(4)]
-                
-                if not os.path.exists(opts.experiment_dir):
-                    os.makedirs(opts.experiment_dir)
-                model_snapshot_filename = opts.experiment_dir + 'semantic_model.snapshot'
-                
-                tester = lambda current_iter, train_rmse, val_rmse: testAccuracyIter(save_to_db, train_rmse, val_rmse, current_iter, 
-                        rmses, scores, train_times, test_times, model_snapshot_filename)
-		semantic_model = SemanticModel(document_iterator=training_set_iterator, num_features=opts.num_features, file_name=model_snapshot_filename, 
-                                               learning_rate=opts.learning_rate, regularization_factor=opts.regul_factor,
-                                               neg_weights=opts.zero_weights, doc_prof_low=opts.doc_prof_low, doc_prof_high=opts.doc_prof_high, 
-                                               word_prof_low=opts.word_prof_low, word_prof_high=opts.word_prof_high, decay=opts.decay,
-					       min_df=opts.min_df, max_df=opts.max_df, save_frequency=5, test_frequency=5, 
-                                               save_model=True,  with_validation_set=True, save_to_db=save_to_db,
-                                               tester=tester)
-					       #tester = lambda epoch: test_accuracy(semantic_model, db, epoch, accuracy_result_filename))	
-        
-		try:
-			semantic_model.train()
-			pass
-		except (KeyboardInterrupt, SystemExit):
-			raise
-		finally:
-                        pd.DataFrame(rmses).to_pickle(opts.experiment_dir + 'rmses.pkl')
-                        pd.DataFrame(scores).to_pickle(opts.experiment_dir + 'scores.pkl')
-                        pd.DataFrame(train_times).to_pickle(opts.experiment_dir + 'train_times.pkl')
-                        pd.DataFrame(test_times).to_pickle(opts.experiment_dir + 'test_times.pkl')
-                        
-			semantic_model.save(save_words=True)
-
-			print "Training total time: " + str(time.time() - start_time)
-			db.close()
-	else:
-		testAccuracyGensim(opts.num_features, 0.002, 0.33)
-
+        runTraining(experiment_dir=opts.experiment_dir, num_features=opts.num_features, learning_rate=opts.learning_rate, regularization_factor=opts.regul_factor,
+                                   zero_weights=opts.zero_weights, doc_prof_low=opts.doc_prof_low, doc_prof_high=opts.doc_prof_high, 
+                                   word_prof_low=opts.word_prof_low, word_prof_high=opts.word_prof_high, decay=opts.decay,
+                                   min_df=opts.min_df, max_df=opts.max_df, term_freq_weight=opts.term_freq_weight, num_iter=opts.num_iter) 
 
 if __name__ == "__main__":
-	test()
+    #testUsingOptions()
+    runMultipleTests()

@@ -194,12 +194,6 @@ class InMemoryDocumentIterator(object):
             docs = self.processDocuments(self.docs.values(), convert) #required as each time new words are selected
             yield docs
 
-class TermFrequencyWeight(Enum):
-    RAW_FREQUENCY = 1
-    LOG_NORMALIZATION = 2
-    AUGMENTED_FREQUENCY = 3
-    BINARY = 4
-
 #class CalculationHelper(object):
 #@numba.jit("float32(float32[:],float32[:,:], int32)", nopython=True,cache=True)
 @numba.jit(nopython=True,cache=True)
@@ -260,7 +254,7 @@ def calculateErrorPerDocument(doc_profile, word_weights, word_profiles, regulari
 
 class SemanticModel(object):
     def __init__(self, document_iterator, num_features=10, file_name=None,
-        term_freq_weight=TermFrequencyWeight.LOG_NORMALIZATION, use_idf = True,
+        term_freq_weight='log_normalization', use_idf = True,
         min_df=0.0, max_df=1.0, learning_rate=0.001, regularization_factor=0.01, 
         neg_weights=3.0, doc_prof_low=-0.01, doc_prof_high=0.01, word_prof_low=-0.01, word_prof_high=0.01, 
         limit_features=True, preanalyze_documents=True, tester=None, save_frequency=40, test_frequency=40, save_model=True,
@@ -532,13 +526,13 @@ class SemanticModel(object):
             self.word_profiles[word_id, :] = new_word_profiles[new_profile_id, :]
 
     def setUpTf(self):
-        if self.term_freq_weight == TermFrequencyWeight.RAW_FREQUENCY:
+        if self.term_freq_weight == 'raw_frequency':
             return lambda bow, raw_freq: raw_freq
-        elif self.term_freq_weight == TermFrequencyWeight.LOG_NORMALIZATION:
+        elif self.term_freq_weight == 'log_normalization':
             return lambda bow, raw_freq: 1 + (math.log(raw_freq) if raw_freq > 0 else 0)
-        elif self.term_freq_weight == TermFrequencyWeight.AUGMENTED_FREQUENCY:
+        elif self.term_freq_weight == 'augmented_frequency':
             return lambda bow, raw_freq: 0.5 + (0.5 * raw_freq / max(bow.values()))
-        elif self.term_freq_weight == TermFrequencyWeight.BINARY:
+        elif self.term_freq_weight == 'binary':
             return lambda bow, raw_freq: 1 if raw_freq > 0 else 0
 
     def setUpIdf(self):

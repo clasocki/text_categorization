@@ -122,9 +122,9 @@ def testClassifiers(X_train, y_train, X_test, y_test):
             (SGDClassifier(alpha=.0001, n_iter=50, penalty="l1"), "SGD Classifier [l1]"),
             (SGDClassifier(alpha=.0001, n_iter=50, penalty="elasticnet"), "SGD Classifier [elasticnet]"),
             (NearestCentroid(), "Nearest Centroid"),
-            (Pipeline([
-                ('feature_selection', SelectFromModel(LinearSVC(penalty="l1", dual=False, tol=1e-3))),
-                ('classification', LinearSVC(penalty="l2"))]), "Linear SVC [l1 based features]")
+            #(Pipeline([
+            #    ('feature_selection', SelectFromModel(LinearSVC(penalty="l1", dual=False, tol=1e-3))),
+            #    ('classification', LinearSVC(penalty="l2"))]), "Linear SVC [l1 based features]")
             ):
         #print('=' * 80)
         #print(name)
@@ -138,11 +138,7 @@ def testClassifiers(X_train, y_train, X_test, y_test):
 
     clf_names, score, training_time, test_time = results
     
-    scores = dict()
-    for i, clf_name in enumerate(clf_names):
-        scores[clf_name] = { 0: score[i] }
-    print(pd.DataFrame(scores))
-
+    
     return results
 
     training_time = np.array(training_time) / np.max(training_time)
@@ -229,6 +225,8 @@ if __name__ == "__main__":
             'rec.autos'
         ]
 
+    categories = None
+
     if opts.filtered:
         remove = ('headers', 'footers', 'quotes')
     else:
@@ -276,11 +274,11 @@ if __name__ == "__main__":
         vectorizer = TfidfVectorizer(sublinear_tf=True, min_df=0.002, max_df=0.33,
                                      stop_words='english')
         X_train = vectorizer.fit_transform(data_train.data)
-    """
-    semantic_model = gensim_tests.SemanticModel.build((tokenize(text).split() for text in data_train.data), 200, 
-                                                      0.002 * len(data_train.data), 0.33 * len(data_train.data))
-    X_train = np.asarray([semantic_model.inferProfile(tokenize(x).split()) for x in data_train.data])
-    """
+    
+    #semantic_model = gensim_tests.SemanticModel.build((tokenize(text).split() for text in data_train.data), 200, 
+    #                                                  0.002 * len(data_train.data), 0.33 * len(data_train.data))
+    #X_train = np.asarray([semantic_model.inferProfile(tokenize(x).split()) for x in data_train.data])
+    
     #document_iterator = DocumentIterator(doc_filter="published = 1 and learned_category is not null", 
     #                                     document_batch_size=5000, db_window_size=5000)
 
@@ -346,4 +344,13 @@ if __name__ == "__main__":
         return s if len(s) <= 80 else s[:77] + "..."
 
     
-    testClassifiers(X_train, y_train, X_test, y_test)
+    clf_names, score, training_time, test_time = testClassifiers(X_train, y_train, X_test, y_test)
+
+    scores = dict()
+    for i, clf_name in enumerate(clf_names):
+        scores[clf_name] = { 0: score[i] }
+    df = pd.DataFrame(scores)
+    df.to_csv('doc_class_tests.csv')
+    print(df)
+
+
