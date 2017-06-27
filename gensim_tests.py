@@ -6,6 +6,7 @@ class SemanticModel(object):
 		self.lsi = None
 		self.tfidf = None
 		self.dic = None
+                self.num_features = None
 
 	def createDictionary(self, tokenized_texts, min_df, max_df):
 		new_dictionary = corpora.Dictionary(tokenized_texts)
@@ -19,6 +20,7 @@ class SemanticModel(object):
 	@staticmethod
 	def build(tokenized_texts, num_features, min_df, max_df):
 		model = SemanticModel()
+                model.num_features = num_features
 
 		text_it1, text_it2 = itertools.tee(tokenized_texts, 2)
 
@@ -39,7 +41,8 @@ class SemanticModel(object):
 		text_tfidf = self.tfidf[text_bow]
 		profile = self.lsi[text_tfidf]
 	
-		return [feature_val for feature_id, feature_val in profile]
+		profile = [feature_val for feature_id, feature_val in profile]
+                return profile if profile else [0] * self.num_features
 
 	def inferProfiles(self, tokenized_texts):
 		return [self.inferProfile(text) for text in tokenized_texts]

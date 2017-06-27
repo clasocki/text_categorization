@@ -10,11 +10,10 @@ from scipy.cluster.hierarchy import linkage, ward, dendrogram, fcluster
 from sklearn.neighbors import NearestNeighbors
 from collections import Counter
 import gensim_tests
-from nifty.text import tokenize
 from sklearn.metrics import confusion_matrix, accuracy_score
 import itertools
 import matplotlib.pyplot as plt
-from semantic_model import SemanticModel, InMemoryDocumentIterator, DocumentIterator
+from semantic_model import SemanticModel, InMemoryDocumentIterator, DocumentIterator, tokenize
 import datetime
 from sklearn.ensemble import RandomForestClassifier
 from training_set_expansion import getLabeledSetGensim, LocalDocumentGenerator
@@ -22,7 +21,7 @@ import time
 from sklearn.multiclass import OneVsRestClassifier
 from sklearn.linear_model import Perceptron
 from sklearn.datasets import fetch_20newsgroups
-from document_classification_20newsgroups import testClassifiers
+from document_classification_20newsgroups import testClassifiers, newsgroupsSet, reutersSet
 from collections import defaultdict
 import pandas as pd
 from optparse import OptionParser
@@ -286,82 +285,89 @@ def test_accuracy(semantic_model, db, current_epoch, result_filename):
 
 	#plt.show()
 
-def testAccuracyIter(word_profiles_in_db, train_rmse, val_rmse, current_iter, rmses, scores, 
-        train_times, test_times, snapshot_file):
-    categories = [
-        'alt.atheism',
-        'talk.religion.misc',
-        'comp.graphics',
-        'sci.space',
-        'rec.motorcycles',
-        'sci.electronics',
-        'sci.med',
-        'talk.politics.guns',
-        'rec.autos'
-    ]
-    categories = None
+def testProfileInference(experiment_dir):
+    num_iters = [5, 10, 15, 25, 30]
+    learning_rates = [0.001, 0.005, 0.01]
+    regularization_factors = [0.0, 0.01, 0.1, 1.0]
+    decay_rates = [0.0, 2.0, 4.0]
 
-    remove = ()
-    data_train = fetch_20newsgroups(subset='train', categories=categories,
-                                shuffle=True, random_state=42,
-                                remove=remove)
+    params = [num_iters, learning_rates, regularization_factors, decay_rates]
+    combinations = list(itertools.product(*params))
 
-    data_test = fetch_20newsgroups(subset='test', categories=categories,
-                               shuffle=True, random_state=42,
-                               remove=remove)
-    y_train, y_test = data_train.target, data_test.target
-    iter_semantic_model = SemanticModel.load(snapshot_file, document_iterator=None, word_profiles_in_db=word_profiles_in_db)
-    X_train = numpy.asarray([iter_semantic_model.inferProfile(x, num_iters=10, learning_rate=0.002, regularization_factor=0.01) for x in data_train.data])
-    X_test = numpy.asarray([iter_semantic_model.inferProfile(x, num_iters=10, learning_rate=0.002, regularization_factor=0.01) for x in data_test.data])
+    scores = defaultdict(dict)
+    try:
+        for i, args in enumerate(combinations):
+            start_time = time.time()
+            scores['rate combination'][i] = 'iter=%s,learn_r=%s,regul_f=%s,decay=%s' % args
+            testAccuracyIter(snapshot_file=experiment_dir + '/semantic_model.snapshot', current_iter=i, scores=scores, 
+                    num_iters=args[0], learning_rate=args[1], regularization_factor=args[2], decay=args[3])
+            print args, time.time() - start_time
+    finally:
+        pd.DataFrame(scores).to_pickle(experiment_dir + '/scores_profile_infer.pkl')
 
-    y_train, y_test = data_train.target, data_test.target
-    clf_names, score, train_time, test_time = testClassifiers(X_train=X_train, y_train=y_train, X_test=X_test, y_test=y_test)
+def testAccuracyIter(snapshot_file='semantic_model.snapshot', word_profiles_in_db=False, train_rmse=0.0, val_rmse=0.0, current_iter=0,
+        rmses=defaultdict(dict), train_times=defaultdict(dict), test_times=defaultdict(dict),
+        num_iters=15, learning_rate=0.002, regularization_factor=0.01, decay=0.0, zero_weights=None, positive_val_rmse=0.0,
+        train_docs=None, test_docs=None, y_train=None, y_test=None, precision=defaultdict(dict), recall=defaultdict(dict), scores=defaultdict(dict),
+        multilabel=False, semantic_model=None):
+    
+    start_time = time.time()
+    X_train = None
+    if not semantic_model:
+        print "Hej"
+        semantic_model = SemanticModel.load(snapshot_file, document_iterator=None, word_profiles_in_db=word_profiles_in_db)
+        X_train = numpy.asarray([semantic_model.inferProfile(x, num_iters=num_iters, learning_rate=learning_rate, 
+            regularization_factor=regularization_factor, decay=decay) for x in train_docs])
+    else:
+        X_train = numpy.asarray([x.profile for x in semantic_model.document_iterator.docs.values()])
+    X_test = numpy.asarray([semantic_model.inferProfile(x, num_iters=num_iters, learning_rate=learning_rate, 
+        regularization_factor=regularization_factor, decay=decay, zero_weights=zero_weights) for x in test_docs])
+    print "Extracting profiles, ",  time.time() - start_time
+    clf_names, score, train_time, test_time = testClassifiers(X_train=X_train, y_train=y_train, X_test=X_test, y_test=y_test, multilabel=multilabel)
+    print "Testing classifiers, ",  time.time() - start_time
+
     print score
 
     for i, clf_name in enumerate(clf_names):
-        scores[clf_name][current_iter] = score[i]
+        if not multilabel:
+            scores[clf_name][current_iter] = score[i]
+        else:
+            precision[clf_name][current_iter] = score[i]['precision']
+            recall[clf_name][current_iter] = score[i]['recall']
+
         train_times[clf_name][current_iter] = train_time[i]
         test_times[clf_name][current_iter] = test_time[i]
 
     rmses['rmse - zbior treningowy'][current_iter] = train_rmse
     rmses['rmse - zbior walidacyjny'][current_iter] = val_rmse
+    rmses['rmse - zbior pozytywny walidacyjny'][current_iter] = positive_val_rmse
+
 
 def runTraining(experiment_dir, num_features, learning_rate, regularization_factor, zero_weights, doc_prof_low, doc_prof_high, 
-          word_prof_low, word_prof_high, decay, min_df, max_df, term_freq_weight, num_iter):
+          word_prof_low, word_prof_high, decay, min_df, max_df, term_freq_weight, num_iter, test_set_num_iters, test_zero_weights):
     start_time = time.time()
 
-    categories = [
-        'alt.atheism',
-        'talk.religion.misc',
-        'comp.graphics',
-        'sci.space',
-        'rec.motorcycles',
-        'sci.electronics',
-        'sci.med',
-        'talk.politics.guns',
-        'rec.autos'
-    ]
-    categories = None
-    data_train = fetch_20newsgroups(subset='train', categories=categories,
-                    shuffle=True, random_state=42, remove = ())# 'footers', 'quotes'))
-    data_test = fetch_20newsgroups(subset='test', categories=categories,
-                    shuffle=True, random_state=42, remove = ())# 'footers', 'quotes'))
+    #train_docs, test_docs, y_train, y_test, multilabel = newsgroupsSet()
+    train_docs, test_docs, y_train, y_test, multilabel = reutersSet()
 
-    training_set_iterator = InMemoryDocumentIterator(data_set=data_train.data)
+    training_set_iterator = InMemoryDocumentIterator(data_set=train_docs)
     #db = MySQLdb.connect(host='127.0.0.1', user='root',
     #                     passwd='1qaz@WSX', db='test')
     #training_set_iterator = DocumentIterator(doc_filter="published = 1 and learned_category is not null", 
     #                                     document_batch_size=5000, db_window_size=5000)
     
     save_to_db = False
-    rmses, scores, train_times, test_times = [defaultdict(dict) for x in xrange(4)]
-    
+    rmses, precision, recall, train_times, test_times = [defaultdict(dict) for x in xrange(5)]
+    scores = defaultdict(dict)
     if not os.path.exists(experiment_dir):
         os.makedirs(experiment_dir)
     model_snapshot_filename = experiment_dir + '/semantic_model.snapshot'
     
-    tester = lambda current_iter, train_rmse, val_rmse: testAccuracyIter(save_to_db, train_rmse, val_rmse, current_iter, 
-            rmses, scores, train_times, test_times, model_snapshot_filename)
+    semantic_model = None
+    tester = lambda current_iter, train_rmse, val_rmse, positive_val_rmse: testAccuracyIter(model_snapshot_filename, save_to_db, train_rmse, val_rmse, current_iter, 
+            rmses, train_times, test_times, precision=precision, recall=recall, scores=scores, positive_val_rmse=positive_val_rmse, train_docs=train_docs, test_docs=test_docs,
+            y_train=y_train, y_test=y_test, multilabel=multilabel, semantic_model=semantic_model, learning_rate=learning_rate, regularization_factor=regularization_factor, 
+            decay=decay, num_iters=test_set_num_iters, zero_weights=test_zero_weights)
     semantic_model = SemanticModel(document_iterator=training_set_iterator, num_features=num_features, file_name=model_snapshot_filename, 
                                    learning_rate=learning_rate, regularization_factor=regularization_factor,
                                    neg_weights=zero_weights, doc_prof_low=doc_prof_low, doc_prof_high=doc_prof_high, 
@@ -378,7 +384,12 @@ def runTraining(experiment_dir, num_features, learning_rate, regularization_fact
             raise
     finally:
             pd.DataFrame(rmses).to_pickle(experiment_dir + '/rmses.pkl')
-            pd.DataFrame(scores).to_pickle(experiment_dir + '/scores.pkl')
+            if not multilabel:
+                pd.DataFrame(scores).to_pickle(experiment_dir + '/scores.pkl')
+            else:
+                pd.DataFrame(precision).to_pickle(experiment_dir + '/precision.pkl')
+                pd.DataFrame(recall).to_pickle(experiment_dir + '/recall.pkl')
+
             pd.DataFrame(train_times).to_pickle(experiment_dir + '/train_times.pkl')
             pd.DataFrame(test_times).to_pickle(experiment_dir + '/test_times.pkl')
             
@@ -395,28 +406,30 @@ def runMultipleTests():
           
                                    min_df=opts.min_df, max_df=opts.max_df, term_freq_weight=opts.term_freq_weight, num_iter=opts.num_iter)
     """
-    num_features = [200, 400,]
-    learning_rates = [0.001, 0.005]
-    regularization_factors = [0.01]
-    zero_weights = [5.0]
-    doc_prof_lows = [-1.0,]
-    doc_prof_highs = [1.0,]
-    word_prof_lows = [-1.0,]
-    word_prof_highs = [1.0,]
+    num_features = [300]
+    learning_rates = [0.001]
+    regularization_factors = [0.01, 0.2]
+    zero_weights = [3.0,]
+    doc_prof_lows = [-0.01,]
+    doc_prof_highs = [0.01,]
+    word_prof_lows = [-0.01,]
+    word_prof_highs = [-0.01,]
     decays = [2.0]
-    min_dfs = [0.002,]
+    min_dfs = [0.001, 5]
     max_dfs = [0.33,]
-    term_freq_weights = ['log_normalization',]
-    num_iters = [100,]
+    term_freq_weights = ['log_normalization', ]
+    num_iters = [80,]
+    test_set_num_iters = [40]
+    test_set_zero_weights = [0.0, 3.0,]
     params = [num_features, learning_rates, regularization_factors, zero_weights, doc_prof_lows, doc_prof_highs, 
-              word_prof_lows, word_prof_highs, decays, min_dfs, max_dfs, term_freq_weights, num_iters]
+              word_prof_lows, word_prof_highs, decays, min_dfs, max_dfs, term_freq_weights, num_iters, test_set_num_iters, test_set_zero_weights]
     combinations = list(itertools.product(*params))
     
-    i_start = 4
+    i_start = 282
     ps = []
     for i, args in enumerate(combinations):
-        descr = str(i + i_start) + "__full_set__"
-        descr += "num_f=%s-learn_r=%s-regul_f=%s-zero_w=%s-doc_low=%s-doc_high=%s-word_low=%s-word_high=%s-decay=%s-min_df=%s-max_df=%s,term_w=%s-iter=%s" % args
+        descr = str(i + i_start) + "__reuters_propValSet_test_zero_w_randEveryIter_"
+        descr += "num_f=%s-learn_r=%s-regul_f=%s-zero_w=%s-doc_low=%s-doc_high=%s-word_low=%s-word_high=%s-decay=%s-min_df=%s-max_df=%s,term_w=%s-iter=%s-test_iter=%s-test_zero_w=%s" % args
         experiment_dir = 'experiments/' + descr
         if not os.path.exists(experiment_dir):
             os.makedirs(experiment_dir)
@@ -424,8 +437,10 @@ def runMultipleTests():
         with open(experiment_dir + '/cmd', 'w+') as f:
             f.write(descr)
         
+        #runTraining(*((experiment_dir, ) + args))
         ps.append(Process(target=runTraining, args=(experiment_dir, ) + args))
         
+    
     for p in ps:
         p.start()
     
@@ -490,3 +505,4 @@ def testUsingOptions():
 if __name__ == "__main__":
     #testUsingOptions()
     runMultipleTests()
+    #testProfileInference(sys.argv[1])

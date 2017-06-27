@@ -53,33 +53,51 @@ from sklearn import metrics
 
 from training_set_expansion import getLabeledSetGensim, LocalDocumentGenerator
 import gensim_tests
-from nifty.text import tokenize
-from semantic_model import SemanticModel, DocumentIterator
+from semantic_model import SemanticModel, DocumentIterator, tokenize1
 import pandas as pd
+from nltk.corpus import reuters
+from sklearn.preprocessing import MultiLabelBinarizer
+from sklearn.multiclass import OneVsRestClassifier
+from sklearn.decomposition import TruncatedSVD
 
 # Display progress logs on stdout
 logging.basicConfig(level=logging.INFO,
                     format='%(asctime)s %(levelname)s %(message)s')
 
+class Tokenizer(object):
+    def __call__(self, doc):
+        return tokenize(doc).split()
 
 ###############################################################################
 # Benchmark classifiers
-def benchmark(clf, clf_name, X_train, y_train, X_test, y_test):
+def benchmark(clf, clf_name, X_train, y_train, X_test, y_test, multilabel):
     #print('_' * 80)
     #print("Training: ")
-    #print(clf)
+    print(clf)
     t0 = time()
     clf.fit(X_train, y_train)
     train_time = time() - t0
-    #print("train time: %0.3fs" % train_time)
+    print("train time: %0.3fs" % train_time)
 
     t0 = time()
     pred = clf.predict(X_test)
     test_time = time() - t0
-    #print("test time:  %0.3fs" % test_time)
+    print("test time:  %0.3fs" % test_time)
 
-    score = metrics.accuracy_score(y_test, pred)
-    #print("accuracy:   %0.3f" % score)
+    score = None
+    if not multilabel:
+        score = metrics.accuracy_score(y_test, pred)
+        print("accuracy:   %0.3f" % score)
+    else:
+        precision = metrics.precision_score(y_test, pred, average='micro')
+        recall = metrics.recall_score(y_test, pred, average='micro')
+        f1 = 2.0 * precision * recall / (precision + recall)
+        score = { 'precision': precision,
+                  'recall': recall,
+                  'f1' : f1
+                }
+    
+        print("precision: %0.3f recall: %0.3f f1: %0.3f" % (precision, recall, f1))
 
     """ 
     if hasattr(clf, 'coef_'):
@@ -97,38 +115,59 @@ def benchmark(clf, clf_name, X_train, y_train, X_test, y_test):
         print("classification report:")
         print(metrics.classification_report(y_test, pred,
                                             target_names=target_names))
-
-    if opts.print_cm:
-        print("confusion matrix:")
-        print(metrics.confusion_matrix(y_test, pred))
     """
-
+    #print(metrics.confusion_matrix(y_test, pred))
     #print()
     return clf_name, score, train_time, test_time
 
+class Tokenizer(object):
+    def __call__(self, doc):
+        return tokenize(doc).split()
 
-def testClassifiers(X_train, y_train, X_test, y_test):
+def svd(num_features):
+    vectorizer = TfidfVectorizer(tokenizer=Tokenizer(), stop_words='english', min_df=0.001, max_df=0.33,
+                                 use_idf=True, smooth_idf=True, sublinear_tf=True)
+    svd_model = TruncatedSVD(n_components=num_features, algorithm='randomized',
+                             n_iter=10, random_state=42)
+
+    svd_transformer = Pipeline([('tfidf', vectorizer), 
+                                ('svd', svd_model)])
+
+    return svd_transformer
+    #svd_matrix = svd_transformer.fit_transform(document_corpus)
+
+    #return svd_matrix
+
+def testClassifiers(X_train, y_train, X_test, y_test, multilabel):
+    if multilabel:
+        mlb = MultiLabelBinarizer()
+
+        y_train = mlb.fit_transform(y_train)
+        y_test = mlb.transform(y_test)
+        
     results = []
     for clf, clf_name in (
             (RidgeClassifier(tol=1e-2, solver="lsqr"), "Ridge Classifier"),
-            (Perceptron(n_iter=50), "Perceptron"),
-            (PassiveAggressiveClassifier(n_iter=50), "Passive-Aggressive"),
+            #(Perceptron(n_iter=50), "Perceptron"),
+            #(PassiveAggressiveClassifier(n_iter=50), "Passive-Aggressive"),
             (KNeighborsClassifier(n_neighbors=10), "kNN"),
             (KNeighborsClassifier(n_neighbors=10, algorithm='brute', metric='cosine'), "kNN cosine"),
-            (RandomForestClassifier(n_estimators=100), "Random forest"),
+            #(RandomForestClassifier(n_estimators=100), "Random forest"),
             (LinearSVC(penalty="l2", dual=False, tol=1e-3), "Linear SVC [l2]"),
-            (LinearSVC(penalty="l1", dual=False, tol=1e-3), "Linear SVC [l1]"),
-            (SGDClassifier(alpha=.0001, n_iter=50, penalty="l2"), "SGD Classifier [l2]"),
-            (SGDClassifier(alpha=.0001, n_iter=50, penalty="l1"), "SGD Classifier [l1]"),
+            #(LinearSVC(penalty="l1", dual=False, tol=1e-3), "Linear SVC [l1]"),
+            #(SGDClassifier(alpha=.0001, n_iter=50, penalty="l2"), "SGD Classifier [l2]"),
+            #(SGDClassifier(alpha=.0001, n_iter=50, penalty="l1"), "SGD Classifier [l1]"),
             (SGDClassifier(alpha=.0001, n_iter=50, penalty="elasticnet"), "SGD Classifier [elasticnet]"),
-            (NearestCentroid(), "Nearest Centroid"),
+            #(NearestCentroid(), "Nearest Centroid"), #not suitable for multilabel
             #(Pipeline([
             #    ('feature_selection', SelectFromModel(LinearSVC(penalty="l1", dual=False, tol=1e-3))),
             #    ('classification', LinearSVC(penalty="l2"))]), "Linear SVC [l1 based features]")
             ):
         #print('=' * 80)
         #print(name)
-        results.append(benchmark(clf, clf_name, X_train, y_train, X_test, y_test))
+        if multilabel:
+            clf = OneVsRestClassifier(clf)
+        results.append(benchmark(clf, clf_name, X_train, y_train, X_test, y_test, multilabel))
 
     # make some plots
 
@@ -160,6 +199,59 @@ def testClassifiers(X_train, y_train, X_test, y_test):
         plt.text(-.3, i, c)
 
     plt.savefig('classifier_comparison.pdf')
+
+def reutersSet():
+    documents = reuters.fileids()
+     
+    train_docs_id = list(filter(lambda doc: doc.startswith("train"),
+                                     documents))
+    test_docs_id = list(filter(lambda doc: doc.startswith("test"),
+                                    documents))
+      
+    train_docs = [reuters.raw(doc_id) for doc_id in train_docs_id]
+    test_docs = [reuters.raw(doc_id) for doc_id in test_docs_id]
+
+    train_labels = [reuters.categories(doc_id) for doc_id in train_docs_id]
+    test_labels = [reuters.categories(doc_id) for doc_id in test_docs_id]
+
+    multilabel = True
+
+    return train_docs, test_docs, train_labels, test_labels, multilabel
+
+def newsgroupsSet():
+    categories = [
+        'alt.atheism',
+        'talk.religion.misc',
+        'comp.graphics',
+        'sci.space',
+        'rec.motorcycles',
+        'sci.electronics',
+        'sci.med',
+        'talk.politics.guns',
+        'rec.autos'
+    ]
+
+    categories = None
+
+    remove = ('headers', 'footers', 'quotes')
+    remove = ()
+
+    data_train = fetch_20newsgroups(subset='train', categories=categories,
+                                    shuffle=True, random_state=42,
+                                    remove=remove)
+
+    data_test = fetch_20newsgroups(subset='test', categories=categories,
+                                   shuffle=True, random_state=42,
+                                   remove=remove)
+    # order of labels in `target_names` can be different from `categories`
+    target_names = np.asarray(data_train.target_names)
+
+    # split a training set and a test set
+    y_train, y_test = data_train.target, data_test.target
+
+    multilabel = False
+
+    return data_train.data, data_test.data, y_train, y_test, multilabel
 
 if __name__ == "__main__":
 
@@ -210,81 +302,34 @@ if __name__ == "__main__":
 
     ###############################################################################
     # Load some categories from the training set
-    if opts.all_categories:
-        categories = None
-    else:
-        categories = [
-            'alt.atheism',
-            'talk.religion.misc',
-            'comp.graphics',
-            'sci.space',
-            'rec.motorcycles',
-            'sci.electronics',
-            'sci.med',
-            'talk.politics.guns',
-            'rec.autos'
-        ]
+    
+    #train_docs, test_docs, y_train, y_test, multilabel = newsgroupsSet()
+    train_docs, test_docs, y_train, y_test, multilabel = reutersSet()
 
-    categories = None
-
-    if opts.filtered:
-        remove = ('headers', 'footers', 'quotes')
-    else:
-        remove = ()
-
-    print("Loading 20 newsgroups dataset for categories:")
-    print(categories if categories else "all")
-
-    data_train = fetch_20newsgroups(subset='train', categories=categories,
-                                    shuffle=True, random_state=42,
-                                    remove=remove)
-
-    data_test = fetch_20newsgroups(subset='test', categories=categories,
-                                   shuffle=True, random_state=42,
-                                   remove=remove)
-    print('data loaded')
-
-    # order of labels in `target_names` can be different from `categories`
-    target_names = data_train.target_names
-
-
-    def size_mb(docs):
-        return sum(len(s.encode('utf-8')) for s in docs) / 1e6
-
-    data_train_size_mb = size_mb(data_train.data)
-    data_test_size_mb = size_mb(data_test.data)
-
-    print("%d documents - %0.3fMB (training set)" % (
-        len(data_train.data), data_train_size_mb))
-    print("%d documents - %0.3fMB (test set)" % (
-        len(data_test.data), data_test_size_mb))
-    #print("%d categories" % len(categories))
-    print()
-
-    # split a training set and a test set
-    y_train, y_test = data_train.target, data_test.target
+    #y_train, y_test = [[x] for x in target_names[data_train.target]], [[x] for x in target_names[data_test.target]]
 
     print("Extracting features from the training data using a sparse vectorizer")
     t0 = time()
     if opts.use_hashing:
         vectorizer = HashingVectorizer(stop_words='english', non_negative=True,
                                        n_features=opts.n_features)
-        X_train = vectorizer.transform(data_train.data)
+        X_train = vectorizer.transform(train_docs)
     else:
-        vectorizer = TfidfVectorizer(sublinear_tf=True, min_df=0.002, max_df=0.33,
+        vectorizer = TfidfVectorizer(sublinear_tf=True, min_df=0.001, max_df=0.33,
                                      stop_words='english')
-        X_train = vectorizer.fit_transform(data_train.data)
-    
-    #semantic_model = gensim_tests.SemanticModel.build((tokenize(text).split() for text in data_train.data), 200, 
-    #                                                  0.002 * len(data_train.data), 0.33 * len(data_train.data))
-    #X_train = np.asarray([semantic_model.inferProfile(tokenize(x).split()) for x in data_train.data])
+        X_train = vectorizer.fit_transform(train_docs)
+    svd_transformer = svd(300)
+    #X_train = svd_transformer.fit_transform(train_docs)
+    #semantic_model = gensim_tests.SemanticModel.build((tokenize(text).split() for text in train_docs), 400, 
+    #                                                 0.001 * len(train_docs), 0.33 * len(train_docs))
+    #X_train = np.asarray([semantic_model.inferProfile(tokenize(x).split()) for x in train_docs])
     
     #document_iterator = DocumentIterator(doc_filter="published = 1 and learned_category is not null", 
     #                                     document_batch_size=5000, db_window_size=5000)
 
-    #iter_semantic_model = SemanticModel.load('semantic_model.snapshot', document_iterator=None, word_profiles_in_db=False)
-    #X_train = np.asarray([iter_semantic_model.inferProfile(x, num_iters=20, learning_rate=0.001, regularization_factor=0.01) for x in data_train.data])
-    #print(X_train)
+    iter_semantic_model = SemanticModel.load('experiments/165__reuters_propValSet_triples_pos_rmse_num_f=300-learn_r=0.001-regul_f=0.01-zero_w=3.0-doc_low=-0.01-doc_high=0.01-word_low=-0.01-word_high=-0.01-decay=2.0-min_df=0.001-max_df=0.33,term_w=log_normalization-iter=80/semantic_model.snapshot', document_iterator=None, word_profiles_in_db=False)
+    X_train = np.asarray([iter_semantic_model.inferProfile(x, num_iters=30, learning_rate=0.001, regularization_factor=0.01) for x in train_docs])
+    print(X_train)
 
     """
     query = "SELECT profile, learned_category FROM pap_papers_view WHERE published = 1 and profile is not null and learned_category is not null"
@@ -306,12 +351,12 @@ if __name__ == "__main__":
 
     print("Extracting features from the test data using the same vectorizer")
     t0 = time()
-    X_test = vectorizer.transform(data_test.data)
-    #X_test = np.asarray([semantic_model.inferProfile(tokenize(x).split()) for x in data_test.data])
-    #X_test = np.asarray([iter_semantic_model.inferProfile(x, num_iters=20, learning_rate=0.001, regularization_factor=0.01) for x in data_test.data])
+    #X_test = vectorizer.transform(test_docs)
+    #X_test = svd_transformer.transform(test_docs)
+    #X_test = np.asarray([semantic_model.inferProfile(tokenize(x).split()) for x in test_docs])
+    X_test = np.asarray([iter_semantic_model.inferProfile(x, num_iters=30, learning_rate=0.001, regularization_factor=0.01) for x in test_docs])
     #print (X_test)
     duration = time() - t0
-    print("done in %fs at %0.3fMB/s" % (duration, data_test_size_mb / duration))
     #print("n_samples: %d, n_features: %d" % X_test.shape)
     print()
 
@@ -344,7 +389,7 @@ if __name__ == "__main__":
         return s if len(s) <= 80 else s[:77] + "..."
 
     
-    clf_names, score, training_time, test_time = testClassifiers(X_train, y_train, X_test, y_test)
+    clf_names, score, training_time, test_time = testClassifiers(X_train, y_train, X_test, y_test, multilabel)
 
     scores = dict()
     for i, clf_name in enumerate(clf_names):
