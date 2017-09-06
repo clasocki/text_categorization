@@ -1,0 +1,1353 @@
+%
+% Niniejszy plik stanowi przykład formatowania pracy magisterskiej na
+% Wydziale MIM UW.  Szkielet użytych poleceń można wykorzystywać do
+% woli, np. formatujac wlasna prace.
+%
+% Zawartosc merytoryczna stanowi oryginalnosiagniecie
+% naukowosciowe Marcina Wolinskiego.  Wszelkie prawa zastrzeżone.
+%
+% Copyright (c) 2001 by Marcin Woliński <M.Wolinski@gust.org.pl>
+% Poprawki spowodowane zmianami przepisów - Marcin Szczuka, 1.10.2004
+% Poprawki spowodowane zmianami przepisow i ujednolicenie 
+% - Seweryn Karłowicz, 05.05.2006
+% dodaj opcję [licencjacka] dla pracy licencjackiej
+\documentclass{pracamgr}
+
+%\usepackage{polski}
+\usepackage[polish]{babel}
+
+%Jesli uzywasz kodowania polskich znakow ISO-8859-2 nastepna linia powinna byc 
+%odkomentowana
+%\usepackage[latin2]{inputenc}
+%Jesli uzywasz kodowania polskich znakow CP-1250 to ta linia powinna byc 
+%odkomentowana
+%\usepackage[cp1250]{inputenc}
+\usepackage{enumitem}
+\usepackage[linesnumbered, ruled]{algorithm2e}
+%\usepackage{commath}
+%\renewcommand{\vec}[1]{\mathbf{#1}}
+\usepackage{listings}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{graphicx}
+\usepackage{booktabs}
+% \usepackage{graphicx}
+\usepackage{float}
+\newcommand{\norm}[1]{\left\lVert#1\right\rVert}
+\newcommand{\abs}[1]{\lvert#1\rvert}
+
+% Dane magistranta:
+
+\author{Cezary Lasocki}
+
+\nralbumu{320813}
+
+\title{Metody uczenia maszynowego w automatycznej kategoryzacji tekstów}
+
+\tytulang{Machine learning methods in automatic text categorization}
+
+%kierunek: Matematyka, Informatyka, ...
+\kierunek{Informatyka}
+
+% informatyka - nie okreslamy zakresu (opcja zakomentowana)
+% matematyka - zakres moze pozostac nieokreslony,
+% a jesli ma byc okreslony dla pracy mgr,
+% to przyjmuje jedna z wartosci:
+% {metod matematycznych w finansach}
+% {metod matematycznych w ubezpieczeniach}
+% {matematyki stosowanej}
+% {nauczania matematyki}
+% Dla pracy licencjackiej mamy natomiast
+% mozliwosc wpisania takiej wartosci zakresu:
+% {Jednoczesnych Studiow Ekonomiczno--Matematycznych}
+
+% \zakres{Tu wpisac, jesli trzeba, jedna z opcji podanych wyzej}
+
+% Praca wykonana pod kierunkiem:
+% (podać tytuł/stopień imię i nazwisko opiekuna
+% Instytut
+% ew. Wydział ew. Uczelnia (jeżeli nie MIM UW))
+\opiekun{prof. dra hab. Jana Madeya\\
+  Instytut Informatyki\\
+  }
+
+% miesiąc i~rok:
+\date{\today}
+
+%Podać dziedzinę wg klasyfikacji Socrates-Erasmus:
+\dziedzina{ 
+%11.0 Matematyka, Informatyka:\\ 
+%11.1 Matematyka\\ 
+%11.2 Statystyka\\ 
+11.3 Informatyka\\ 
+%11.4 Sztuczna inteligencja\\ 
+%11.5 Nauki aktuarialne\\
+%11.9 Inne nauki matematyczne i informatyczne
+}
+
+%Klasyfikacja tematyczna wedlug AMS (matematyka) lub ACM (informatyka)
+\klasyfikacja{}
+
+% Słowa kluczowe:
+\keywords{automatyczna kategoryzacja tekstów, uczenie maszynowe, ukryte indeksowanie semantyczne, text mining, reprezentacja tekstu, przetwarzanie języka naturalnego, systemy rekomendacyjne, korpus, metoda gradientowa, stochastyczny gradientowy spadek, SVD, gensim}
+
+% Tu jest dobre miejsce na Twoje własne makra i~środowiska:
+\newtheorem{defi}{Definicja}[section]
+
+% koniec definicji
+
+\begin{document}
+\maketitle
+
+%tu idzie streszczenie na strone poczatkowa
+\begin{abstract}
+
+W pracy został podjęty problem automatycznej kategoryzacji tekstów z uwzględnieniem korpusów, których rozmiary przekraczają RAM oraz które podlegają ciągłym zmianom, tzn. korpus jest na bieżąco rozszerzany o nowe teksty.
+
+Przedstawiono implementację programu służącego do automatycznej klasyfikacji tekstów opierającego się na otrzymanym iteracyjnie modelu Ukrytego Indeksowania Semantycznego (LSI – Latent Semantic Indexing). 
+
+Kategoryzacja tekstów dokonuje się dzięki modelowi predykcyjnemu wygenerowanemu przy wykorzystaniu technik uczenia maszynowego. Dokumenty oraz słowa w nich występujące reprezentuje się w formie wektorów powstałych w procesie uczenia, które następnie są wykorzystywane jako podstawa do klasyfikacji dokumentów.
+
+Praca obejmuje przegląd stosowanych metod kategoryzacji dokumentów oraz analizę porównawczą dostępnych technik wobec przygotowanego rozwiązania.
+\end{abstract}
+
+\chapter*{Podziękowania}
+
+Tu będą podziękowania.
+
+\tableofcontents
+%\listoffigures
+%\listoftables
+
+\chapter{Wprowadzenie}
+
+\section{Problematyka}
+Automatyczna klasyfikacja tekstów wiąże się z przypisaniem dokumentu do jednej ze zdefiniowanych klas przy użyciu wybranych metod uczenia maszynowego. Bardzo istotnym aspektem procesu kategoryzacji jest jego automatyczność. Zastosowanie programu komputerowego do zadania etykietowania dużej liczby zgromadzonych dokumentów eliminuje wady wykorzystania grupy ekspertów. Wśród nich warto wymienić niską wydajność, duże koszty przeprowadzenia procesu oraz brak zapewnienia jednolitych zasad kategoryzacji. W tej pracy skupiono się na technikach wykorzystywanych w procesie automatycznej klasyfikacji dokumentów w kontekście dużych ilości przetwarzanych danych.
+
+Przyczyną podjęcia tematyki niniejszej pracy była potrzeba opracowania zautomatyzowanej metody przydzielania kategorii dokumentów dla agregatora otwartych artykułów naukowych --- Paperity. Jest to platforma, która powstała w odpowiedzi na potrzebę rozwiązania problemu rozproszenia treści naukowych po wielu niezależnych od siebie serwisach. Badacze wskazują na niedogodności istniejących agregatorów, takie jak ograniczanie się do konkretnych wydawnictw czy brak możliwości wygodnego przeszukiwania zasobów. Paperity pozwala na selekcjonowanie dokumentów pochodzących z czasopism funkcjonujących w formie hybrydowej, w których tylko część artykułów jest bezpłatna, bądź opartych w całości o model otwartego dostępu. 
+
+Formuła otwartego dostępu daje możliwość swobodnego korzystania z artykułów naukowych przez internet bez ograniczeń i opłat. Jej celem jest umożliwienie rozpowszechniania i współdzielenia publikacji opartych na wolnych licencjach lub opublikowanych w ramach czasopism zezwalających na bezpłatny dostęp do ich zawartości, przy czym artykuły nadal chronione są prawem autorskim.
+
+Rejestrowane w systemie publikacje mają charakter multidyscyplinarny, w okresie pisania tej pracy repozytorium dokumentów składało się z około miliona artykułów naukowych, spośród których zaplanowano wyodrębnienie następujących dziedzin:
+
+matematyka, informatyka, fizyka, astronomia, inżynieria, chemia, geografia, środowisko, farmacja, genetyka, medycyna, zoologia i botanika, rolnictwo, paleontologia, neurologia, psychologia, prawo, antropologia, archeologia, lingwistyka, psychologia, sociologia, ekonomia, edukacja, architektura, historia, sztuka, literatura, filozofia, teologia.
+
+\section{Cel pracy}
+
+Celem zadania było znalezienie i przeprowadzenie ewaluacji metod na przeprowadzenie klasyfikacji zbioru początkowo niepoetykietowanych dokumentów. Zaimplementowano prototypowy program umożliwiający budowę modelu predykcyjnego odzwierciedlającego strukturę semantyczną tekstów (dalej w pracy określanego jako \textit{model semantyczny}) dla dużych zbiorów dokumentów, na którego podstawie było możliwe przydzielanie etykiet dla artykułów występujących w repozytorium oraz nowych tekstów. Zbadano takie algorytmy, które były w stanie analizować znaczną liczbę dokumentów i przetwarzać je w sposób niewymagający składowania pełnego zbioru w pamięci operacyjnej. Wszystkie operacje przeprowadzane na korpusie miały być zaimplementowane tak, aby ze względu na zapotrzebowanie na pamięć, były niezależne od jego rozmiaru. 
+
+Oceniono możliwość budowy modelu predykcyjnego, wykorzystując iteracyjną metodę rozkładu macierzy wykorzystywaną w kontekście systemów rekomendacyjnych. Ta strategia została opublikowana wraz z niektórymi szczegółami implementacyjnymi 11 grudnia 2006 roku przez Simona Funka \cite{funk} i wykorzystywała algorytm obliczania przybliżonego \textit{rozkładu macierzy według wartości osobliwych} (por. rozdział trzeci), w którym rozkład ten jest aproksymowany numerycznie przez \textit{gradientowy spadek}.
+
+Drugą analizowaną metodą była technika ukrytego indeksowania semantycznego tekstów dostępna w bibiotece \textit{gensim} \footnote{https://radimrehurek.com/gensim/}.
+
+\section{Struktura pracy}
+
+Rozdział drugi tej pracy koncentruje się na wprowadzeniu do zagadnień automatycznego przypisywania tekstów do opisujących ich dziedzin. Przedstawiono w nim uogólnioną strategię podejścia do powyższego zadania. Omówiono kolejne kroki, począwszy od wstępnego przetwarzania zbioru treningowego zawierającego dokumenty poprzez przekształcanie dokumentów do postaci wektorowej akceptowanej przez klasyfikatory aż do ostatecznego testowania otrzymanego kategoryzatora.
+
+W trzeciej części pracy skupiono się na podstawach teoretycznych działania algorytmów wyodrębniania cech wykorzystujących tzw. ukryte indeksowanie semantyczne. Przedstawiono podstawy matematyczne metody stochastycznego gradientowego spadku. Opisano powiązania między odkrywaniem struktury semantycznej zbiorów tekstów oraz systemami rekomendacyjnymi.
+
+Rozdział czwarty poświęcono na przedstawienie praktycznego zastosowania algorytmu gradientowego oraz dokonano jego ewaluacji i porównania do algorytmu dostępnego w bibliotece gensim. Wykorzystując wybraną metodę budowy modelu semantycznego, przedstawiono techniki użyte do przyporządkowania etykiet dla zbioru Paperity.
+
+\chapter{Podstawy automatycznej kategoryzacji tekstów}
+
+Automatyczna kategoryzacja tekstów jest zadaniem z problematyki przetwarzania języka naturalnego polegającym na automatycznym przypisaniu otrzymanego na wejściu tekstu do co najmniej jednej z góry ustalonej kategorii (klasy). Łączy w sobie metody aplikowane zarówno w dziedzinie uczenia maszynowego (ang. \textit{machine learning}), jak i systemów wyszukiwania informacji (ang. \textit{information retrieval systems}). Systemy wyszukiwania informacji są w stanie, w oparciu o zapytanie użytkownika, zlokalizować w zbiorze wyszukiwawczym tzw. relewantne dokumenty, czyli takie, które są istotne ze względu na określoną cechę. Dokonuje się porównań między zadanymi zapytaniami a przeszukiwanymi tekstami w celu znalezienia elementów zbioru danych jak najlepiej odpowiadających zapytaniu. W przypadku automatycznych kategoryzatorów, wykorzystując podobne techniki, poszukuje się podobieństw między poszczególnymi dokumentami, a grupy tekstów najbardziej do siebie podobnych klasyfikuje się do tej samej kategorii.
+
+
+\section{Strategie klasyfikacji}
+Systemy automatycznej kategoryzacji dokumentów można podzielić ze względu na przyjęte podejście do przypisywania klas do poszczególnych tekstów. Uwzględnia się następujący podział:
+
+\begin{itemize}
+    \item systemy regułowe --- wnioskowanie o kategorii przypisywanej do dokumentów dokonuje się na podstawie opracowanych przez ekspertów zestawów statycznych heurystyk i reguł. Proste reguły mogą polegać na przydziale do kategorii na podstawie występowania pewnych ustalonych słów kluczowych. Klasyfikacja w oparciu o reguły może okazać się bardzo dokładna dla niedużych repozytoriów danych z wąskimi, jasno sprecyzowanymi klasami decyzyjnymi. Kiedy dochodzi do rozbudowy kolekcji dokumentów, konieczna staje się rekonstrukcja przygotowanych reguł, co wymaga dużego nakładu czasu. Często spada także pokrycie zbioru możliwych przypadków ze względu na wzrost złożoności problemu klasyfikacji, a wraz ze zwiększeniem liczby reguł, trudniejsze staje się ich skuteczne zarządzanie.
+    \item systemy z uczeniem nadzorowanym --- w celu zastosowania tych technik trzeba dysponować tzw. \textit{zbiorem treningowym} (\textit{uczącym}). Jest to zestaw tekstów, w którym każdy z dokumentów został uprzednio zakwalifikowany do prawidłowej kategorii. Przygotowany korpus dokumentów poddaje się przetwarzaniu za pomocą wybranej metodologii, w wyniku czego dla każdego tekstu ustala się nową reprezentację (zbiór cech charakteryzujących dokument), która w połączeniu z przypisaną kategorią służy do wyuczenia algorytmu klasyfikującego. Wytrenowany klasyfikator jest w stanie następnie podejmować decyzje o przydziale nieznanych dotąd tekstów do konkretnych klasy decyzyjnych na podstawie ich reprezentacji otrzymanych w analogiczny sposób jak dla przykładów treningowych. Skuteczność wyuczonego modelu predykcyjnego bada się na podstawie wydzielonego \textit{zbioru testowego}.
+    \item systemy z uczeniem częściowo nadzorowanym --- bazują na informacjach pochodzących jednocześnie zarówno ze zbiorów etykietowanych, jak i takich, które nie mają określonego podziału na kategorie. Zwykle zakłada się, że algorytmy mają dostęp do stosunkowo niewielkiej liczby tekstów, dla których przydzielono etykiety, w porównaniu do liczby dokumentów bez wyznaczonych etykiet, początkowy niewielki zbiór poetykietowany jest stopniowo rozszerzany o pozostałe dokumenty.
+    \item systemy z uczeniem nienadzorowanym --- nie otrzymują treningowego zestawu dokumentów z uprzednio prawidłowo przydzielonymi etykietami. Analizując zbiór wejściowy, algorytmy uczenia nienadzorowanego znajdują ukryte wzorce i podobieństwa między dokumentami na podstawie dobranej metryki. Najbardziej skorelowane ze sobą teksty, czyli najbliższe według określonego sposobu pomiaru odległości (podobieństwa) między nimi, zostają skupione w wyodrębnionych grupach, tzw. \textit{klastrach}.
+\end{itemize}
+
+\section{Generyczny proces automatycznej klasyfikacji}
+
+W procesie automatycznej klasyfikacji tekstów wyróżnia się kilka zasadniczych części. Na samym początku wszystkie analizowane dokumenty muszą zostać poddane przetwarzaniu wstępnemu, w wyniku którego uzyskuje się uporządkowaną reprezentację dokumentu podzieloną na poszczególne jednostki tekstowe, np. słowa lub sekwencje słów. Taka postać dokumentu staje się następnie przedmiotem konwersji do kolejnego modelu reprezentacji dokumentu, który przedstawia zawartość dokumentu w postaci wyodrębnionych cech stanowiących podstawę klasyfikacji. Przykładem takiej reprezentacji jest tzw. \textit{model przestrzeni wektorowej} przedstawiający tekst jako wektor reprezentujących go cech. Niekiedy liczba wydobytych cech osiąga wysokie wartości rzędu dziesiątek tysięcy, a przetwarzanie tak dużej liczby zmiennych przez algorytmy uczenia maszynowego może być mało wydajne. W tym celu stosuje się dodatkową fazę przetwarzania zwaną \textit{redukcją wymiaru przestrzeni cech}. Następnie należy dobrać stosowny algorytm klasyfikacyjny, który będzie wydajny ze względu na zastosowane metody ekstrakcji cech. Przygotowaną postać dokumentów ze zbioru treningowego przekazuje się jako podstawę do uczenia klasyfikatora. W podobny sposób przedstawia się nowe dokumenty, które zostają przydzielone do najlepiej opisującej je kategorii przez wytrenowany model predykcyjny.
+
+Powyższy generyczny opis procesu kategoryzacji przedstawiony jest w sposób uproszczony na rysunku \ref{fig:supervised}. Schemat ten jest najbardziej odpowiedni dla algorytmów opartych na uczeniu nadzorowanym i niekiedy okazuje się zbyt prosty przy bardziej zaawanasowanych zastosowaniach. W tej pracy zostanie przedstawione rozwiązanie wykorzystujące model predykcyjny budowany w sposób iteracyjny w istotny sposób wykorzystujący redukcję wymiaru przestrzeni cech.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.8\textwidth]{uczenie_nadzorowane.jpg}
+    \caption{Schemat klasyfikacji dokumentów z uczeniem nadzorowanym}
+    \label{fig:supervised}
+\end{figure}
+
+\subsection{Przetwarzanie wstępne}
+
+Głównym celem fazy przetwarzania wstępnego jest transformacja dokumentów z oryginalnej formy tekstowej do pewnej uniwersalnej postaci gotowej do dalszego przekazania do algorytmów uczenia maszynowego. Poprzez przyjęcie zwięzłego, uniwersalnego sposobu przestawienia tekstu, do analizy można następnie stosować techniki wykorzystywane również w dziedzinach wykraczających poza analizę tekstu.
+
+W trakcie przetwarzania wstępnego wyróżnia się następujące etapy:
+\begin{itemize} %[noitemsep,nolistsep]
+    \item sprowadzenie dokumentu do postaci tzw. \textit{zwykłego tekstu}
+    \item lematyzacja i stemowanie słów
+    \item usuwanie wyrazów nieistotnych
+    \item ekstrakcja cech.
+\end{itemize}
+
+\subsection{Sprowadzenie dokumentu do postaci zwykłego tesktu}
+
+Dokumenty poddawane analizie bardzo rzadko występują w postaci zwykłego tekstu, to znaczy pozbawionego wszelkiego formatowania, kompresji lub metadanych. Analiza tekstów z serwisów internetowych wymaga na przykład usunięcia wszelkich tagów HTML oraz obrazów, zaś publikacje naukowe najczęściej występują w postaci plików PDF. Stąd na początku procesu wykonuje się działania polegające na ekstrakcji tekstu. W kolejnym etapie, zwanym \textit{tokenizacją}, z tekstu zostają wyodrębnione pojedyncze słowa, eliminuje się zbędne znaki interpunkcyjne oraz zamienia duże litery na małe (bądź małe na duże). Spośród wyodrębionych słów należy wyeliminować liczby oraz dokonać zespolenia tych słów, które były rozdzielone łącznikami.
+
+\subsection{Lematyzacja i stemowanie słów}
+
+Wiele spośród słów w wyodrębnionym zbiorze występuje w różnych postaciach, np. może być zapisane zarówno w liczbie pojedynczej, jak i w liczbie mnogiej. Ponadto w językach o rozwiniętej fleksji, każde słowo może pojawić się w wielu formach gramatycznych (przypadkach). Każda z jego wersji zostanie wtedy uznana przez klasyfikator za oddzielną niezwiązaną wartość, pomimo, że wszystkie wersje przekazują tę samą informację. Z tego właśnie powodu stosuje się takie podejścia jak \textit{lematyzacja} czy \textit{stemowanie}.
+
+Lematyzacja sprowadza wszystkie formy słów do ich formy podstawowej, np. czasownik \textit{ma} zostaje zamieniony na \textit{mieć}. Program Morfeusz\footnote{http://sgjp.pl/morfeusz/morfeusz.html.po} jest istniejącą implementacją tzw. analizatora morfologicznego dla języka polskiego, który dla poszczególnych słów ustala wszystkie możliwe interpretacje (formy podstawowe), które dane hasło może przyjmować. Dla języków o ograniczonej fleksji można stosować lematyzację przybliżoną (stemowanie), która odcina w słowach części zmieniające się w zależności od formy, np. w przypadku języka angielskiego \textit{words} redukuje się do \textit{word}. 
+
+\subsection{Usuwanie wyrazów nieistotnych}
+
+Dużą część niemal każdego tekstu stanowią słowa nieprzekazujące istotnej informacji o jego tematyce, np. \textit{i}, \textit{lub}, \textit{już}. Usuwanie nieistotnych słów prowadzi do otrzymania postaci dokumentu pozbawionej nadmiarowych cech, powodujących zaszumienie informacji i mogących negatywnie wpływać na proces uczenia klasyfikatora. Zestawy słów nieistotnych określa się jako tzw. \textit{stop-listę} (ang. \textit{stop words}). Istnieją gotowe biblioteki programistyczne zawierające zestawy słów nieistotnych. Popularny pakiet \textit{nltk}\footnote{http://www.nltk.org/} dla języka Python zawiera korpus 2400 słów dla jedenastu języków.
+
+\subsection{Ekstrakcja cech}
+
+Omówione w poprzednich punktach czynności prowadzą do przedstawienia dokumentu w tzw. formacie ,,bag of words''. W tym modelu tekst jest reprezentowany jako multizbiór słów, w którym nie zwraca się już uwagi na gramatykę oraz początkową kolejność słów, natomiast skupia się na częstotliwości wystąpienia każdego z nich. Postać ,,bag of words'', w której każde słowo występuje w formie tekstowej wciąż nie pozwala na skuteczne porównywanie ze sobą dokumentów. Nie mają do niej zastosowania powszechne algorytmy klasyfikujące bazujące na danych numerycznych, stąd otrzymany model dokumentu poddaje się dalszemu przetwarzaniu, a popularnym podejściem do reprezentacji jest model przestrzeni wektorowej (ang. \textit{vector space model}).
+
+W modelu przestrzeni wektorowej analizowane dokumenty zapisane w języku naturalnym są przekształcane na wektory $\vec{q} = [q_1, q_2, \ldots, q_n]$ nad ciałem liczb rzeczywistych należące do pewnej przestrzeni wektorowej, określanej jako \textit{przestrzeń cech} (ang. \textit{feature space}). Zmienna $n$ określa liczbę cech, natomiast współrzędna $q_i$ stanowi wagę $i$-tej cechy wyliczonej za pomocą wybranej metody. Często spotykanym rozwiązaniem jest określenie cechy jako miary istotności (wagi) słowa, która zależy od liczby jego wystąpień w stosunku do dokumentu oraz całego korpusu. 
+
+\subsection{Redukcja liczby wymiarów przestrzeni cech}
+
+Warto zauważyć, że w analizowanych tekstach mogą występować tysiące słów, co prowadzi do generowania wektorów o znacznej długości. Stąd jedną z głównych trudności zadania kategoryzacji tekstu jest duża wymiarowość otrzymanej reprezentacji wektorowej, która jest obliczeniowo trudna do obsłużenia przez wiele algorytmów uczących. Dodatkowo, otrzymane wektory są tzw. wektorami \textit{rzadkimi}, w których liczba zer jest znaczna w stosunku do ich wymiaru. Wykorzystuje się zatem metody prowadzące do zredukowania liczby cech oraz poprawy ich jakości.
+
+Kolejne wektory dokumentów zestawia się, tworząc macierz opisującą relacje miedzy tekstami a poszczególnymi słowami. Następnie, taką macierz przekształca się, otrzymując reprezentację o mniejszym wymiarze, wyodrębniając przy tym zupełnie nowe cechy wiążące ze sobą informacje niesione przez cechy wyjściowe. Jednym ze znanych rozwiązań jest rozkład macierzy według wartości osobliwych (omówiony w rozdziale trzecim).
+
+\subsection{Testowanie jakości klasyfikatora}
+
+Wyodrębione postacie wektorowe dokumentów są następnie używane w procesie klasyfikacji. Istotne jest, aby dobrać jak najlepszy klasyfikator, to znaczy taki, który na podstawie uzyskanych postaci wektorowych będzie w stanie przyporządkowywać teksty do odpowiednich klas decyzyjnych. 
+
+Rozważając zadanie klasyfikacji, niech funkcja $d$ określa właściwą kategorię dla obiektu $v$ spośród zbioru dostępnych klas decyzyjnych: $\{ d_1, \ldots d_n \}$.  Mając dany klasyfikator $f$, który przypisuje obiekt $v$ do jednej z klas $\{ d_1, \ldots d_n \}$, analizuje się następujące przypadki dla wyniku klasyfikacji:
+
+\begin{itemize}
+    \item \textbf{TP} - \textbf{prawdziwie dodatni} (ang. \textit{true positive}), gdy $d(v) = d_i$ oraz $f(v) = d_i$
+    \item \textbf{TN} - \textbf{prawdziwie ujemny} (ang. \textit{true negative}), gdy $d(v) \neq d_i$ oraz $f(v) \neq d_i$
+    \item \textbf{FP} - \textbf{fałszywie dodatni} (ang. \textit{false positive}), gdy $d(v) \neq d_i$ oraz $f(v) = d_i$
+    \item \textbf{FN} - \textbf{fałszywie ujemny} (ang. \textit{false negative}), gdy $d(v) = d_i$ oraz $f(v) \neq d_i$.
+\end{itemize}
+
+Przyjmując powyższe oznaczenia, ocenę jakości algorytmu klasyfikującego dokonuje się na podstawie następujących miar:
+
+\begin{itemize}
+    \item \textbf{dokładność} (ang. \textit{accuracy}):
+        \[
+            accuracy = \frac{TP + TN}{TP + FP + FN + TN}
+        \]
+    \item \textbf{precyzja} (ang. \textit{precision}):
+        \[
+            precision = \frac{TP}{TP + FP}
+        \]
+        określa, jaka część decyzji pozytywnych jest faktycznie pozytywna 
+    \item \textbf{czułość} (ang. \textit{recall}):
+        \[
+            recall = \frac{TP}{TP + FN}
+        \]
+        określa, jaka część pozytywnych wyników została wykryta przez klasyfikator
+    \item \textbf{wynik F1}
+        \[
+            f1-score = \frac{2 \cdot precison \cdot recall}{precision + recall} 
+        \]
+        jest średnią harmoniczną z wartości precyzji oraz czułości.
+\end{itemize}
+
+Algorytmy klasyfikujące rozważa się ze względu na liczbę klas decyzyjnych, do których są przyporządkowywane przykłady testowe. Jednym z rozwiązań jest klasyfikator, który przydziela tylko jedną klasę dla każdej obserwacji. Innym powszechnym podejściem jest dopuszczenie możliwości przydziału wielu etykiet. Można zastosowanć w takim przypadku tzw. strategię \textit{jeden przeciw pozostałym} (ang. \textit{one vs rest}), gdzie każda klasa decyzyjna jest reprezentowana przez swój własny klasyfikator. Podejmuje on decyzję binarną czy obserwacja należy do danej kategorii, czy raczej przynależy do którejś z pozostałych klas. Ostateczny wynik klasyfikacji jest wektorem decyzji poszczególnych klasyfikatorów.
+
+\section{Metody obliczania wag słów}
+
+W fazie obliczania wag słów określa się wartości dla każdej współrzędnej wektora reprezentującego dokument. Kalkulowaną wagę $w_{t,d}$ można wyrazić wzorem:
+\[
+w_{t,d} = l_{t,d} \cdot g_{t},
+\]
+gdzie:
+\begin{itemize}
+    \item $l_{t,d}$ – lokalna waga słowa $t$ w dokumencie $d$
+    \item $g_{t}$ – globalna waga słowa $t$ w odniesieniu do całej kolekcji dokumentów.
+\end{itemize}
+
+\subsection{Wagi lokalne}
+\vspace{3mm}
+
+\begin{tabular}{|c|c|}
+     Metoda & Waga \\ \hline
+     binarna & $ \begin{cases} 1 & \text{jeśli } tf_{t,d} > 0 \\ 0 & \text{w przeciwnym wypadku} \\ \end{cases} $ \\[0.25cm] 
+     zwykła częstość & $ tf_{t,d} $ \\[0.25cm] 
+     logarytmiczna & $ 1 + \log(tf_{t,d}) $ \\[0.25cm] 
+     rozszerzona znormalizowana & $ 0.5 + 0.5 \cdot \displaystyle\frac{tf_{t,d}}{\displaystyle\max_{t' \in d} tf_{t',d}} $ \\
+\end{tabular}
+\vspace{5mm}
+
+Najprostszymi sposobami na wyznaczenie lokalnej wagi słowa $t$ w dokumencie $d$ są kryteria naturalnej częstości i binarne.
+
+\subsubsection*{Zwykła częstość}
+
+Kryterium zwykłej częstości słowa (ang. \textit{term frequency}), oznaczane jako $tf_{t,d}$, opisuje ile razy dane słowo występuje w dokumencie. Pomimo swojej prostoty, ma ono niewątpliwe wady, np. faworyzuje dłuższe teksty i przyporządkowuje zbyt dużą wartość dla słów występujących częściej. Wystarczy zwrócić uwagę, że słowo występujące w tekście, np. pięciokrotnie częściej, zwykle jest niekoniecznie dokładnie pięć razy ważniejsze niż słowo pojawiające się tylko jeden raz.
+
+\subsubsection*{Metoda binarna}
+
+Kryterium binarne określa czy dane słowo występuje w tekście, czy nie, tzn. waga ta przyjmuje wartości:
+\[ 
+\begin{cases} 
+    1 & \text{jeśli } tf_{t,d} > 0 \\ 
+    0 & \text{w przeciwnym wypadku.} \\ 
+\end{cases} 
+\] 
+Powyższa formuła binarna nadaje każdemu słowu pojawiającemu się w dokumencie taką samą istotność, przez co nie jest w stanie rozróżnić słów częstych od słów pojawiających się rzadko. Waga ta może okazać się skuteczna w przypadku krótkich tekstów, gdzie konkretna liczba wystąpień poszczególnych słów jest zwykle mała i nie jest rozważana przy ocenie ich odpowiedniości dla danej kategorii. Najczęściej jednak w przypadku dłuższych dokumentów użycie współczynników binarnych przekazuje zbyt mało wiedzy o znaczeniu słowa i nie jest wystarczające do przeprowadzenia skutecznej klasyfikacji.
+
+\subsubsection*{Metoda rozszerzona znormalizowana}
+
+Możliwą techniką normalizacyjną dla lokalnej wagi jest tzw. \textit{metoda rozszerzona znormalizowana}, określona wzorem:
+
+\[
+K + (1 - K) \cdot \frac{tf_{t,d}}{\max_{t' \in d} tf_{t',d}}.
+\]
+
+Formuła przydziela słowu bonus $K \leq 0.5$ za sam fakt wystąpienia w dokumencie oraz powiększa go o częstotliwość względną ważoną wartością $K$. Częstotliwość względna wystąpienia słowa jest ilorazem jego bazowej częstotliwości $tf_{t,d}$ przez maksymalną częstotliwość spośród wszystkich liczb wystąpień słów w tym dokumencie. Ta metoda zakłada, że już sama obecność słowa powinna być ,,nagradzana'' pewną domyślną wagą, a dodatkowe wystąpienia powinny powiększać tę wartość do pewnego poziomu maksymalnego, w tym przypadku 1.0.
+
+\subsubsection*{Metoda logarytmiczna}
+Waga słowa za pomocą czynnika logarytmicznego jest obliczana w następujący sposób:
+
+\[
+log(1 + tf_{t,d}).
+\]
+
+Powyższy wzór niweluje negatywne efekty powstające wraz z pojawianiem się dużych różnic między częstościami słów. Intuicyjnie, zależność ta nie wzrasta proporcjonalnie do ich częstotliwości. Różnica między istotnością słowa występującego w dwóch dokumentach odpowiednio tysiąc i trzy tysiące razy nie powinna przytłoczyć różnic na poziomie 10 i 30 wystąpień.
+
+\subsection{Wagi globalne}
+\vspace{3mm}
+
+\begin{tabular}{|c|c|}
+     Metoda & Waga \\ \hline
+     Unarna / brak & 1 \\[0.25cm] 
+     Odwrotna częstość & $ \log\displaystyle\frac{N}{df_t} $ \\[0.25cm]
+\end{tabular}
+\vspace{5mm}
+
+Okazuje się, że pewne słowa w niewielkim stopniu pozwalają odróżnić od siebie rozważane teksty, ponieważ występują niemal w każdym dokumencie z zadanego zbioru i nie znajdują się na stop-liście. Z pomocą przychodzi rozwiązanie biorące pod uwagę specyficzność słowa wobec całej kolekcji dokumentów. Zostało ono opublikowane w 1972 przez Karen Spärck Jones \cite{sparck}, a polega na przeskalowaniu wagi lokalnej przez współczynnik $idf_t$ zwany odwrotną częstością w dokumentach (ang. \textit{inverse document frequency}). Przyjmując następujące oznaczenia: $N$ --- liczba dokumentów w analizowanej kolekcji, $ df_t $ --- liczba dokumentów zawierających słowo $t$, wagę tę najczęściej definiuje się jako: 
+
+\[ 
+idf_t = \log\frac{N}{df_t}
+\].
+
+Takie określenie współczynnika gwarantuje, że jego wartość dla słów powszechnych w kolekcji dokumentów i niewnoszących wielu informacji będzie niska, natomiast waga słów rzadkich o dużych zdolnościach dyskryminacyjnych (rozróżniających) będzie wysoka. Miara $idf_t$ jest pewnego rodzaju miarą specyficzności słowa $t$ wobec całego korpusu. Słowo występujące we wszystkich tekstach otrzyma wagę zerową. 
+
+Połączenie przedstawionych wyżej dwóch wag: lokalnej ($tf$) i globalnej ($idf$) prowadzi do otrzymania miary istotności cech w modelu przestrzeni wektorowej nazywanej $tf \text{-} idf$. Niejednokrotnie stanowi ona lepszą podstawę dla klasyfikatorów niż zwykła częstość występowania słowa, ze względu na faworyzowanie terminów o większej użyteczności dla algorytmów uczenia maszynowego, tzn. niewystępujących zbyt często bądź zbyt rzadko w korpusie dokumentów.
+
+\chapter{Algorytm redukcji wymiaru przestrzeni cech}
+
+Wymienione w poprzednim rozdziale metody obliczania wag wystąpień słów oraz mapowania dokumentów na przestrzeń wektorową prowadzą do uzyskania reprezentacji tekstów w postaci wektorów rzadkich o dużym rozmiarze. W tym rozdziale skupiono się na omówieniu technik redukcji wymiaru przestrzeni cech pozwalających na otrzymanie nowych wektorów cech (\textit{profili}) dokumentów i słów, które są w stanie lepiej odzwierciedlić semantyczną zawartość tekstów. Omówiono strategię przeprowadzenia rozkładu macierzy bazującą na metodzie wykorzystanej przez Simona Funka \cite{funk} na potrzeby konkursu zorganizowanego przez serwis \textit{Netflix} \footnote{https://www.netflix.com}, którego celem było znalezienie algorytmu sugerującego treści ze zredukowanym o 10 procent \textit{błędem średniokwadratowym} wyników rekomendacji wobec istniejącego już algorytmu. W tym rozdziale zaprezentowano przełożenie tego algorytmu na problem ekstrakcji profili dokumentów i słów wykorzystywanych następnie w procesie automatycznej kategoryzacji. 
+
+Technika Simona Funka umożliwia obliczanie profili użytkowników oraz przewidywanie jak oceniliby oni konkretne filmy i programy z serwisu. Jest to algorytm iteracyjny przybliżający \textit{rozkład macierzy według wartości osobliwych} oparty na metodzie \textit{gradientowego spadku}, którego zadaniem było przeanalizowanie zbioru 100 milionów ocen wystawionych przez 500 tysięcy użytkowników dla 17 tysięcy filmów i seriali oraz predykcja z jak największą precyzją ocen nieznanych. Warto zwrócić uwagę, że znane obserwacje stanowiły jedynie 1/85 wszystkich możliwych kombinacji filmów i użytkowników.
+
+\section{Systemy rekomendacyjne a problem klasyfikacji tekstów}
+
+Systemy rekomendacyjne umożliwiają modelowanie preferencji użytkowników wobec przedmiotów oraz odkrywanie występujących między nimi relacji. W procesie przygotowania rekomendacji mogą one opierać się na profilach wygenerowanych na podstawie danych opisujących preferencje i cechy konkretnego użytkownika oraz na atrybutach interesujących go przedmiotów. Takiego typu systemy są określane jako systemy \textit{oparte na treści} (ang. \textit{content based}). Drugą powszechnie znaną strategią stosowaną w systemach rekomendacyjnych jest \textit{filtrowanie społecznościowe} (ang. \textit{collaborative filtering}) generujące rekomendacje na podstawie preferencji użytkowników o podobnych gustach i oczekiwaniach, biorąc pod uwagę ich przeszłe aktywności wobec przedmiotów, np. wydane przez nich oceny w zadanej skali.
+
+W problemie rekomendacji z wykorzystaniem filtrowania społecznościowego występują trzy zbiory: $U$ --- zbiór użytkowników, $I$ --- zbiór przedmiotów, $R$ --- zbiór numerycznych ocen oraz definiuje się zbiór trójek postaci $(u, i, r)$, gdzie $u \in U$, $i \in I$, $r \in R$.
+
+Zadanie systemu rekomendacyjnego polega na znalezieniu dla każdego użytkownika przedmiotu, który maksymalizuje wartość funkcji użyteczności $f : U \times I \rightarrow R$ bądź zbioru przedmiotów, dla których wartości funkcji użyteczności są jak najbliższe wartości maksymalnej.
+
+Na potrzeby rozważań algorytmicznych reprezentację krotkową przekształca się na definicję macierzową. Zbiór krotek reprezentuje się jako macierz, której elementy są znane tylko na pozycjach $(u, i)$, a każdy element macierzy stanowi wartość funkcji użyteczności $f$. Pozostałe wartości w macierzy pozostają nieznane. Cechą charakterystyczną otrzymanej macierzy jest to, że jest to macierz rzadka, co oznacza, że jedynie nieznaczna część elementów w stosunku do rozmiaru macierzy jest niepusta. Wpływa na to fakt, że użytkownicy oceniają najczęściej jedynie niewielki procent przedmiotów z całej bazy. Każdy wiersz w powstałej macierzy stanowi reprezentację wektorową użytkownika, a poszczególne kolumny odpowiadają reprezentacjom wektorowym ocenianych przedmiotów.
+
+Dysponując znanymi elementami macierzy, algorytm systemu rekomendacyjnego musi być w stanie przewidzieć z jak największą dokładnością dla każdego użytkownika, które z nieznanych wartości ocen w macierzy przyjmują wartości bliskie maksymalnej wartości funkcji użyteczności. 
+
+W celu wyodrębnienia profili w przestrzeni wektorowej o istotnie mniejszych wymiarach, stosuje się metody przetwarzania macierzy oparte na jej rozkładzie. Po uzyskaniu rozkładu nieznane elementy oryginalnej macierzy są obliczane za pomocą funkcji predykcyjnej wykorzystującej wywnioskowane profile użytkowników i przedmiotów, np. obliczając iloczyn skalarny wektorów cech użytkownika i ocenianego obiektu. Odległości pomiędzy profilami użytkowników można obliczać za pomocą np. miary kosinusowej, definiowanej dla dwóch profili $p_1$ oraz $p_2$ jako $\frac{p_1 \cdot p_2}{\abs{p_1} \abs{p_2}}$. Znalezione dystanse służą zarówno do generowania rekomendacji, jak i do automatycznego przyporządkowania użytkowników do grup ze względu na podobne zainteresowania.
+
+Powyższa reprezentacja problemu filtrowania społecznościowego oraz przyjęte dla niej metody predykcji ocen oraz znajdowania podobieństw między użytkownikami mogą zostać wykorzystane w analogiczny sposób na potrzeby kategoryzacji tekstów. W tym przypadku wyodrębnia się ponownie trzy zbiory: $D$ --- zbiór dokumentów, $W$ --- zbiór słów występujących w dokumentach, $C$ --- zbiór obliczonych wag słów (por. metody obliczania wag słów w rozdziale drugim) oraz definiuje się zbiór trójek postaci $(d, w, c)$, gdzie $d \in D$, $w \in W$, $c \in C$.
+
+Tak wyspecyfikowane trójki ponownie przekłada się na reprezentację macierzową, której wartości na pozycjach $(d, w)$ są wagami słów występujących w dokumentach. Macierz taką poddaje się rozkładowi, a profile występujące w macierzach uzyskanych w procesie faktoryzacji stanowią nowy sposób reprezentowania dokumentów i słów. Wykorzystuje się je w dalszej analizie prowadzącej do znajdowania podobieństw i różnic między dokumentami oraz między słowami w nich występującymi. Zastosowanie technik faktoryzacji macierzy pozwala na odkrycie ukrytych warstw semantycznych rozważanych tekstów, modelowanie tematyki dokumentów oraz ich wzajemnych powiązań, a uzyskane rezultaty stanowią podstawę algorytmów klasyfikujących.
+
+\section{Przybliżony rozkład macierzy} \label{matrix_approx}
+W praktyce dokładny rozkład macierzy jest często niełatwy do osiągnięcia ze względu na jej wymiar bądź brak znajomości wszystkich jej elementów, stąd wynikiem większości znanych narzędzi są jedynie przybliżone czynniki rozkładu. Aproksymuje się je w taki sposób, aby zminimalizować tzw. \textit{funkcję kosztu}, która mierzy rozbieżności między oryginalną macierzą a macierzą uzyskaną przez iloczyn produktów jej rozkładu.
+
+Mając daną macierz $\mathbf{A} \in \mathbb{R}^{m \times n}$, gdzie $m$ --- liczba dokumentów, $n$ --- liczba słów, rozkład macierzy polegać będzie na znalezieniu takich dwóch macierzy $\mathbf{Q} \in \mathbb{R}^{m \times k}$ oraz $\mathbf{R} \in \mathbb{R}^{k \times n}$, że $a_{ui} \approx \mathbf{q}_{u} \mathbf{r}_{i} \quad \forall (u, i) \in \Omega$, gdzie $\Omega$ oznacza zbiór wag słów, a $k$ --- wyznaczona liczba cech w zredukowanej przestrzeni cech. Macierze $\mathbf{Q}$ i $\mathbf{R}$ są określane jako odpowiednio macierze profili dokumentów i słów. Profile dokumentów znajdują się w wierszach macierzy $\mathbf{Q}$, a profile słów w kolumnach macierzy $\mathbf{R}$.
+
+W celu predykcji wartości dowolnej wagi słowa $a'_{ui}$ dla dokumentu $u$ i słowa $i$ (bądź oceny użytkownika $u$ dla produktu $i$ w przypadku systemów rekomendacyjnych), należy wyliczyć iloczyn skalarny profili $\mathbf{q}_{u}$ oraz $\mathbf{r}_{i}$:
+
+\[
+a'_{ui} = pred(\mathbf{q}, \mathbf{r)} = \sum_{t=1}^{k} q_{ut} r_{ti} = \mathbf{q}_{u} \mathbf{r}_{i}.
+\]
+
+Niech $e_{ui}$ oznacza błąd między faktyczną wagą a tą wywnioskowaną na podstawie funkcji predykcyjnej $pred$, $SSE$ sumę kwadratów błędów, a $RMSE$ błąd średniokwadratowy (ang. \textit{root mean square error}):
+
+\[
+e_{ui} = a_{ui} - a'_{ui}, \quad SSE = \sum_{(u,i) \in \Omega} e_{ui}^2, \quad RMSE = \sqrt{\frac{SSE}{\abs{\Omega}}}.
+\]
+
+Wtedy problem przybliżonej faktoryzacji macierzy definiuje się jako znalezienie takich $\mathbf{Q}$, $\mathbf{R}$, że $RMSE$ osiąga wartość minimalną co jest równoznaczne z minimalizacją wartości $SSE$. $RMSE$ i $SSE$ są w tym wypadku optymalizowanymi funkcjami kosztu.
+\[
+\min_{(\mathbf{Q}, \mathbf{R})} \sum_{(u,i) \in \Omega} e_{ui}^2.
+\]
+
+Proces dążący do znalezienia obu macierzy jest nazywany procesem trenowania (uczenia) modelu predykcyjnego. W celu ewaluacji jakości otrzymanego modelu, spośród wszystkich wag słów (znanych ocen) wydziela się zbiór walidacyjny, którego elementy są traktowane jako wartości nieznane w trakcie uczenia. Na wydzielonym zbiorze walidacyjnym rozłącznym ze zbiorem treningowym przeprowadza się pomiary minimalizowanego $RMSE$.
+
+\section{Optymalizacja za pomocą gradientu}
+Jednym z algorytmów stosowanych w celu minimalizacji wartości funkcji kosztu i analizowanym w niniejszej pracy jest optymalizacja za pomocą najszybszego spadku wzdłuż gradientu. Mając daną funkcję zdefiniowaną za pomocą zbioru parametrów, metoda gradientowa, poczynając od pewnego początkowego ich stanu, iteracyjnie zbiega do takich wartości parametrów, które minimalizują wynik tej funkcji. W wyniku działania algorytmu powstaje ciąg punktów, z których każdy jest obliczany na podstawie poprzedniego. Optymalizacja zachodzi w trakcie wykonywania kolejnych operacji algebraicznych na parametrach, uaktualniając je zgodnie z kierunkiem najszybszego spadku optymalizowanej funkcji, tzn. w kierunku przeciwnym do kierunku wskazywanego przez tzw. \textit{gradient} funkcji w danym punkcie, oznaczany jako $\nabla f(\mathbf{w})$. 
+
+Gradient jest wektorem definującym kierunek najszybszego wzrostu funkcji.
+Jeżeli funkcja $f: \mathbb{R}^n \rightarrow \mathbb{R}$ ma pochodne cząstkowe po współrzędnych $\forall \mathbf{w} \in \mathbb{R}^n$, to jej gradient w tym punkcie jest w postaci wektora:
+
+\[
+\nabla f(\mathbf{w}) = \begin{bmatrix} \frac{\partial f}{\partial w_1} (\mathbf{w}) & \frac{\partial f}{\partial w_2} (\mathbf{w}) & \ldots & \frac{\partial f}{\partial w_n} (\mathbf{w}) \end{bmatrix}
+\]
+
+Algorytm gradientowy dla znalezienia wartości jak najbliższej minimum funkcji $f$ rozpoczyna się od przyjęcia pewnego punktu startowego $w_0$. W $(i+1)$-szej iteracji algorytmu należy wyznaczyć kierunek poszukiwań przeciwny do kierunku gradientu w punkcie $w(i)$ oraz wykonać krok $\alpha$ z punktu $w(i)$ w obliczonym kierunku. Dla $(i+1)$-szej iteracji uaktualnienie na $j$-tej współrzędnej wektora parametrów przedstawia się następująco:
+
+\[
+\mathbf{w}(i+1)_{j} := \mathbf{w}(i)_j - \alpha \frac{\partial f}{\partial \mathbf{w}(i)_j}\mathbf{w}(i).
+\]
+
+Współczynnik $\alpha$ jest wielkością kroku bądź inaczej współczynnikiem uczenia, od którego zależy szybkość zbiegania do poszukiwanego optimum funkcji. Zbyt duży współczynnik może spowodować ominięcie minimum, natomiast zbyt mała wielkość kroku prowadzi do zwiększenia liczby iteracji potrzebnych do osiągnięcia wartości minimalnej. Poniższy pseudokod reprezentuje algorytm najszybszego spadku.
+
+\begin{minipage}{\linewidth}
+\begin{lstlisting}[language=Pascal, mathescape=true,frame=single,caption={Metoda najszybszego spadku},captionpos=b]
+$\mathbf{w}$ := $\mathbf{w}_0$
+while not stop do
+    $\mathbf{w}$ := $\mathbf{w} - \alpha \nabla f(\mathbf{w})$
+
+\end{lstlisting}
+\end{minipage}
+
+Algorytm iteracyjny jest kontynuowany do momentu, gdy będzie spełniony warunek stopu, któru determinuje, czy w danym kroku aktualne parametry funkcji dostatecznie przybliżają jej minimum. Miara odległości pomiędzy stanami wektora $\mathbf{w}$ w dwóch sąsiednich iteracjach $i+1$ oraz $i$ wyraża się wzorem:
+
+\[
+\norm{\mathbf{w}_{i+1} - \mathbf{w}_{i}} = \abs{\alpha} \norm{\nabla f(\mathbf{w}_{i})}.
+\]
+
+Stąd, możliwym warunkiem stopu jest dostatecznie mała zmiana wektora pomiędzy iteracjami, czyli osiągnięcie wartości $\norm{\nabla f} \leq \epsilon$, gdzie $\epsilon$ jest ustalonym progiem. Innym narzucanym warunkiem jest określenie predefiniowanej maksymalnej liczby iteracji, po której algorytm należy przerwać bądź osiągnięcie wartości optymalizowanej funkcji na zbiorze treningowym bliskiej oczekiwanego minimum. Wartość oczekiwanego minimum jest jednak rzadko znana z góry.
+
+Kolejna rodzina reguł wymaga testowania funkcji na wydzielonym zbiorze walidacyjnym. Działanie algorytmu przerywa się, gdy wartości funkcji na danych testowych zaczynają wzrastać z każdą kolejną iteracją, mimo że na zbiorze treningowym wciąż maleją. Najczęściej istotną kwestią jest, aby zatrzymać proces uczenia modelu odpowiednio wcześniej zanim osiągnie minimum na zbiorze uczącym. Osiągnięcie takiego stanu może wiązać się ze zjawiskiem przetrenowania (ang. \textit{overfitting}) polegającym na zbyt dokładnym dopasowaniu funkcji predykcyjnej do analizowanych danych kosztem zdolności do generalizacji dla dowolnych przykładów spoza zbioru treningowego.
+
+\section{Metoda stochastyczna}
+W wielkoskalowych problemach uczenia maszynowego użycie metody gradientowej w standardowej postaci może trwać długo ze względu na kosztowność obliczeniową znalezienia gradientu globalnej funkcji kosztu, co wiąże się z koniecznością przeiterowania po wszystkich punktach danych treningowych. Sięgnięcie po metody niedeterministyczne pozwala na znaczne przyspieszenie procesu poszukiwania rozwiązania problemu optymalizacyjnego.
+
+W terminach \texit{statystycznej teorii uczenia} opracowanej przez Vladimira Vapnika celem algorytmów uczenia maszynowego jest znalezienie parametru $\theta^{\ast}$ minimalizującego funkcję \textit{oczekiwanego ryzyka} (ang. \textit{expected risk}) $Q$:
+
+\[
+Q(\theta) = \int c(\theta, x)dP(x),
+\]
+
+gdzie $c$ jest funkcją kosztu z parametrem $\theta$ aktualizowanym w procesie uczenia ze względu na warunki określone przez poszczególne obserwacje $x$ występujące w świecie rzeczywistym. Ponieważ rzeczywisty rozkład prawdopodobieństwa $dP$ obserwacji jest nieznany, szacuje się go przez \textit{rozkład empiryczny} modelowany przez skończony zbiór treningowy algorytmu uczenia maszynowego. Aproksymacja funkcji oczekiwanego ryzyka, tzw. \textit{ryzyko empiryczne} $\hat{Q}$, stanowi wówczas średnią z wartości funkcji kosztu dla każdego elementu ze skończonego zbioru obserwacji:
+
+\[
+Q(\theta) \approx \hat{Q}(\theta) = \frac{1}{N} \sum_{n = 1}^{N} c(\theta, x_n)
+\]
+
+Wtedy zadanie minimalizacji definiuje się jako:
+
+\[
+\min_{\theta} \hat{Q}(\theta) = \min_{\theta} \frac{1}{N} \sum_{n = 1}^{N} c(\theta, x_n).
+\]
+
+W kontekście znajdowania przybliżonego rozkładu macierzy za obserwację przyjmuje się kolejne elementy macierzy,  a funkcję kosztu $c(\theta, e_{ui})$ traktuje się jako błąd przybliżenia elementu o współrzędnych $(u, i)$. Parametr $\theta$ odpowiada aproksymowanym czynnikom faktoryzacji. Rozwiązanie zadania optymalizacyjnego jest wtedy równoznaczne z minimalizacją średniego błędu przybliżenia wszystkich elementów macierzy.
+
+Dla algorytmów gradientowych gradient $\hat{Q}$ oblicza się, korzystając z addytywności pochodnych:
+
+\[
+\nabla \hat{Q}(\theta) = \frac{1}{N} \sum_{n = 1}^{N} \nabla c(\theta, x_n).
+\]
+
+Z powyższego wzoru natychmiastowo wynika wysoka złożoność obliczeniowa algorytmu najszybszego spadku dla zbiorów treningowych o dużej liczności. Czas obliczenia $\nabla \hat{Q}$ rośnie liniowo wraz z liczbą $N$ obserwacji, co czyni standardowy algorytm niewydajnym w praktycznych zastosowaniach. Inkrementalna technika \textit{stochastycznego gradientowego spadku} (ang. \textit{stochastic gradient descent}) wykorzystująca powyższą dekompozycję $\nabla \hat{Q}$ okazuje się skuteczną alternatywą wobec nieskalowalności metody deterministycznej. Metoda stochastyczna zakłada, że optymalizowaną funkcję można przedstawić jako różniczkowalną sumę jej składników. Zamiast obliczać dokładnie prawdziwą wartość $\nabla \hat{Q}$, w każdej iteracji algorytmu aproksymuje się ten gradient, na podstawie losowo wybranej obserwacji $x_n$, $n \in {1, \ldots, N}$ ze zbioru uczącego. Następnie iteracyjnie uaktualnia się parametry $\theta$ minimalizowanej funkcji zgodnie ze wzorem:
+
+\[
+\theta_{i+1} = \theta_{i} - \alpha \nabla c(\theta_{i}, x_n).
+\]
+
+\subsection{Wyżarzanie współczynnika uczenia}
+Dla standardowej metody gradientowej, współczynnik uczenia jest wartością stałą przez cały proces treningu. Trzeba jednak pamiętać, że wydajność algorytmu jest bardzo podatna na właściwe ustalenie tego parametru. W przypadku, gdy współczynnik uczenia jest zbyt duży, algorytm staje się niestabilny i oscyluje pomiędzy różnymi minimami lokalnymi optymalizowanej funkcji zaś kiedy jest zbyt mały, czas osiągnięcia optimum może okazać się zbyt długi.
+
+W celu uzyskania lepszej zbieżności można zastosować dodatkowy narzut, aby stały współczynnik uczenia $\alpha$ zastąpić parametrem malejącym wraz z kolejnymi iteracjami algorytmu. Kolejne współczynniki tworzą wtedy ciąg malejący $\{ \alpha_i, i = 1, ... \}$, którego elementy powinny spełniać warunki: $\sum_{i} \alpha_{i} = \infty$ oraz $\sum_{i} \alpha_{i}^2 < \infty$ \footnote{Bottou, L. (2010). Large-Scale Machine Learning with Stochastic Gradient Descent}. Wprowadzenie takiej zmiany w algorytmie sprawia, że wartość współczynnika uczenia utrzymywana jest na jak najwyższym poziomie, zachowując stabilność procesu uczenia. 
+
+Ciąg ten można zdefiniować, np. za pomocą następującego wzoru:
+
+\[
+\alpha_i = \alpha_0 \frac{1}{1 + \alpha_0 \delta i}
+\]
+
+Wprowadzony parametr zaniku $\delta > 0$ (ang. \textit{decay}) determinuje szybkość zmiany współczynnika uczenia. 
+
+\subsection{Losowy dobór przykładów}
+
+Losowy dobór przykładów ze zbioru treningowego pozwala na ograniczenie szansy znajdowania lokalnych minimów i tym samym zapobieganie wolniejszej zbieżności, szczególnie gdy przykłady pogrupowane są według kategorii lub ich kolejność narzuca pewną strukturę zbioru. Ponieważ w każdej iteracji oszacowanie gradientu jest zgrubne (ang. \textit{nosiy}), uaktualniane parametry wyuczanego modelu niekoniecznie zmieniają się zgodnie z kierunkiem przeciwnym do kierunku wskazywanego przez właściwy gradient. Okazuje się jednak, że właśnie ta właściwość algorytmu jest korzystna w przypadku zbiorów o wielu minimach lokalnych. Szum generowany przez losowy wybór przykładów podczas uaktualnień sprawia, że wartości parametrów modelu mogą wielokrotnie przemieszczać się z jednego zagłębienia do innego, potencjalnie bliższego globalnego minimum. W praktyce ciężko zapewnić całkowitą losowość doboru obserwacji i przyjmuje się, że część elementów może być analizowana sekwencyjnie w pakietach pod warunkiem, że następujące po sobie przykłady treningowe jak najrzadziej przynależą do tej samej klasy.
+
+\section{Rozkład macierzy metodą stochastyczną}
+Technikę stochastycznego spadku gradientu z powodzeniem udaje się zastosować do przeprowadzenia rozkładu macierzy $\mathbf{A} \approx \mathbf{Q} \mathbf{R}$ minimalizującego błąd średniokwadratowy przybliżenia.
+
+Przyjmując następujące oznaczenia:
+\begin{itemize} %[noitemsep,nolistsep]
+    \item $T \subseteq \Omega$ – zbiór treningowy wydzielony ze zbioru $\Omega$ wszystkich znanych elementów macierzy 
+    \item $C$ - globalna funkcja kosztu określająca średni błąd aproksymacji rozkładu
+    \item $c$ - lokalna funkcja kosztu określająca błąd przybliżenia faktoryzacji macierzy dla konkretnego jej elementu
+    \item $\mathbf{Q}_{u \ast}$, $\mathbf{R}_{\ast i}$ - $u$-ty rząd oraz $i$-ta kolumna macierzy $\mathbf{Q}$ oraz $\mathbf{R}$
+    \item $q_{uk}$, $r_{ki}$, $k \in {1, \ldots, K}$ $k$-te elementy wektorów $\mathbf{Q}_{u \ast}$ oraz $\mathbf{R}_{\ast i}$,  
+\end{itemize}
+
+dekompozycję globalnej funkcji kosztu opisuje się jako:
+
+\[
+C(\mathbf{A}, \mathbf{Q}, \mathbf{R}) = \sum_{(u,i) \in T} c(a_{ui}, \mathbf{Q}_{u \ast}, \mathbf{R}_{\ast i}).
+\]
+
+Poszukiwanie parametrów minimalizujących globalną funkcję kosztu sprowadza się do kalkulacji parametrów minimalizujących funkcje lokalne. Korzysta się z obserwacji, że dla każdego punktu $(u, i) \in T$, uaktualniane są tylko wektory $\mathbf{Q}_{u \ast}$ oraz $\mathbf{R}_{\ast i}$, co wynika z następujących faktów:
+
+\[
+\frac{\partial}{\partial q_{uk}} C_{ui}(\mathbf{A}, \mathbf{Q}, \mathbf{R}) = \begin{cases}
+    \frac{\partial}{\partial q_{u'k}} c(a_{u'i}, \mathbf{Q}_{u' \ast}, \mathbf{R}_{\ast i}) \quad \text{jeśli $u = u'$} \\
+    0 \quad \text{wpp}
+\end{cases}
+\]
+
+\[
+\frac{\partial}{\partial r_{ki}} C_{ui}(\mathbf{A}, \mathbf{Q}, \mathbf{R}) = \begin{cases}
+    \frac{\partial}{\partial r_{ki'}} c(a_{u'i}, \mathbf{Q}_{u' \ast}, \mathbf{R}_{\ast i}) \quad \text{jeśli $i = i'$} \\
+    0 \quad \text{wpp}.
+\end{cases}
+\]
+
+Biorąc pod uwagę te zależności, otrzymuje się algorytm gradientowy na minimalizację funkcji kosztu przy rozkładzie macierzy:
+
+\begin{lstlisting}[language=Pascal, mathescape=true,frame=single,caption={Metoda gradientowa rozkładu macierzy},captionpos=b]
+$\mathbf{Q}$ := $\mathbf{Q}_0$
+$\mathbf{R}$ := $\mathbf{R}_0$
+while not stop do
+    $(u, i)$ := losowy punkt ze zbioru $T$
+    for $k \in range(0, dim(\mathbf{Q}_{u \ast}))$ do
+        $\mathbf{Q}'_{uk}$ := $\mathbf{Q}_{uk} - \alpha \frac{\partial}{\partial \mathbf{Q}_{uk}} c(a_{ui}, \mathbf{Q}_{u \ast}, \mathbf{R}_{\ast i})$
+        $\mathbf{R}_{ki}$ := $\mathbf{R}_{ki} - \alpha \frac{\partial}{\partial \mathbf{R}_{ki}} c(a_{ui}, \mathbf{Q}_{u \ast}, \mathbf{R}_{\ast i})$
+        $\mathbf{Q}_{uk}$ := $\mathbf{Q}'_{uk}$
+
+\end{lstlisting}
+
+Dla iteracyjnej metody gradientowej z sumą kwadratów błędów $SSE$ jako globalną funkcją kosztu, wylicza się gradienty błędu przybliżenia wartości elementu $e_{ui}$ dla każdego przykładu treningowego $(u,i) \in T$:
+
+\[
+\frac{\partial}{\partial q_{uk}}e_{ui} = -2e_{ui} r_{ki}, \quad
+\frac{\partial}{\partial r_{ki}}e_{ui} = -2e_{ui} q_{uk}.
+\]
+
+W celu pozbycia się dodatkowego współczynnika w formule gradientowej, funkcję kosztu można przedstawić jako $\sum_{(u,i) \in T} \frac{1}{2} e_{ui}^2 = \sum_{(u,i) \in T} \hat{e}_{ui} = \frac{1}{2} SSE$. Wtedy kierunki najszybszego spadku są wyrażone wzorami:
+
+\[
+\frac{\partial}{\partial q_{uk}}e_{ui} = -e_{ui} r_{ki}, \quad
+\frac{\partial}{\partial r_{ki}}e_{ui} = -e_{ui} q_{uk},
+\]
+
+a aktualizacja czynników rozkładu przebiega następująco:
+
+\[
+q_{uk} := q_{uk} + \alpha e_{ui} r_{ki}, \quad
+r_{ki} := r_{ki} + \alpha e_{ui} q_{uk}.
+\]
+
+\subsection{Przetrenowanie i regularyzacja}
+
+Celem większości problemów w teorii uczenia maszynowego jest wywnioskowanie reprezentacji pewnej funkcji $f(\mathbf{x})$ pewnym modelem (zbiorem parametrów) $\theta$ na podstawie zadanych danych uczących. Obliczony model jest następnie używany do predykcji wartości lub klasyfikacji nowych danych. Istotnym problemem pojawiającym podczas treningu jest przeuczenie, kiedy algorytm osiąga dobre rezultaty na danych treningowych, ale jego skuteczność znacząco spada dla nowych przykładów, które nie pojawiły się w procesie uczenia. Strategia osiągania dobrego poziomu generalizacji algorytmu jest znana jako \textit{regularyzacja}. Ideą stojąca za regularyzacją jest fakt, że modele zbyt złożone i elastyczne zbytnio dopasowują się do analizowanych danych. 
+
+W przypadku iteracyjnych procedur uczenia, takich jak gradientowy spadek, poziom skomplikowania wyuczonej funkcji rośnie wraz z liczbą iteracji. Złożoność otrzymanego modelu można zatem kontrolować stosując wcześniejsze zakończenie uczenia (ang. \textit{early stopping}), na przykład w momencie, gdy wartość funkcji kosztu obliczona na podstawie zbioru walidacyjnego zaczyna rosnąć.
+
+Innym powszechnie stosowanym rozwiązaniem zapobiegającym zbytniemu dopasowaniu modelu predykcyjnego do danych treningowych jest modyfikacja funkcji kosztu poprzez wprowadzanie dodatkowego \textit{czynnika regularyzacyjnego} $R(\theta)$ stanowiącego pewnego rodzaju karę za złożoność. Uwzględnienie dodatkowej wagi w obliczaniu funkcji kosztu ogranicza elastyczność modelu o dużej liczbie parametrów zmniejszając jego zdolność do dopasowania do analizowanych danych i wyciągania na ich podstawie nieprawidłowych wniosków. W klasycznym podejściu zregularyzowana postać $\hat{C}$ funkcji kosztu $C$ dla jej parametrów $\theta$ i danych treningowych $T$ wygląda następująco:
+
+\[
+\hat{C}(\theta, T) = C(\theta, T) + \lambda R(\theta),
+\]
+
+gdzie $\lambda$ jest wagą istotności regularyzacji. Współczynnik $\lambda$ powinien być nieujemną liczbą rzeczywistą, warunek $\lambda = 0$ jest jednoznaczny z brakiem zastosowania regularyzacji, a większe wartości $\lambda$ przyczyniają się do zwiększenia udziału czynnika regularyzacyjnego $R(\theta)$.
+
+Jako czynnik regularyzacyjny dobiera się drugą normę wektora/macierzy parametrów wyuczanego modelu. W przypadku rozkładu macierzy metodą gradientową regularyzowana funkcja kosztu przyjmuje postać:
+
+\[
+\hat{SSE} = \sum_{(u,i) \in \Omega} e_{ui}^2 + \lambda (\norm{\mathbf{q}_{u}}^2 + \norm{\mathbf{r}_{i}}^2),
+\]
+
+a gradienty lokalnych funkcji kosztu wyraża się wzorami:
+
+\[
+\frac{\partial}{\partial q_{uk}}\hat{e}_{ui} = -e_{ui} r_{ki} + \lambda q_{uk}, \quad
+\frac{\partial}{\partial r_{ki}}\hat{e}_{ui} = -e_{ui} q_{uk} + \lambda r_{ki}.
+\]
+
+Podobnie jak w przypadku metody bez regularyzacji, poszczególne elementy czynnników rozkładu macierzy uaktualnia się w kierunku przeciwnym do gradientu:
+
+\[
+q_{uk} := q_{uk} + \alpha (e_{ui} r_{ki} - \lambda q_{uk}), \quad
+r_{ki} := r_{ki} + \alpha (e_{ui} q_{uk} - \lambda r_{ki}).
+\]
+
+Warto zauważyć, że w przypadku, gdy waga istotności $\lambda$ jest równa 0, metoda regularyzowana jest równoznaczna z metodą bez udziału regularyzacji.
+
+Omówiony algorytm przeprowadzania faktoryzacji macierzy poza wskazanymi zastosowaniami w systemach rekomendacyjnych może być wykorzystany w technice z dziedziny eksploracji danych jaką jest \texit{ukryte indeksowanie semantyczne}.
+
+\section{Ukryte indeksowanie semantyczne}
+\textit{Ukryte indeksowanie semantyczne} (ang. \textit{latent semantic indexing (LSI)}) jest metodą wnioskowania oraz znajdowania reprezentacji ukrytej struktury semantycznej dokumentów poprzez zastosowanie obliczeń statystycznych dotyczących występowania słów w dokumentach do dużych korpusów tekstów. Istotą tej techniki jest fakt, że zestawianie informacji o występowaniu bądź niewystępowaniu słów w kolejnych kontekstach w analizowanym korpusie pozwala na odkrycie istniejących w tekstach reguł określających podobieństwo znaczeniowe słów oraz relacje między poszczególnymi ich grupami. Metoda została opublikowana przez badaczy w roku 1996 \footnote{Landaure Thomas, Dumais Susan, A Solution to Plato's Problem: The Latent Semantic Analysis Theory
+of Acquisition, Induction, and Representation of Knowledge, 1996}. 
+
+Ukryte indeksowanie semantyczne w istotny sposób wykorzystuje techniki redukcji wymiarowości, które często interpretowane były przez badaczy jedynie jako metody ograniczenia złożoności problemów poprzez upraszczanie reprezentacji analizowanych zagadnień. Jak się jednak okazuje, wybór właściwego ograniczenia wymiarowości wyjściowego problemu otwiera możliwości znajdowania wcześniej nieznanych struktur i zależności w nim występujących. 
+
+W dziedzinie przetwarzania języka naturalnego rozpatruje się problem znalezienia znaczeniowego podobieństwa między dwoma słowami jako odległość w pewnej reprezentacji języka naturalnego pozwalającej wyodrębnić warstwy znaczeniowe w tekście, tzw. przestrzeni semantycznej. Przy reprezentowaniu danego słowa należy uwzględnić związki między innymi wyrazami (konteksty językowe). Mimo, że same wzorce współwystępowania wyrazów niekoniecznie określają konkretne znaczenie poszczególnych słów, to istotne jest to, że wynikają one właśnie ze znaczenia słów i definują ukryte w tekście niebezpośrednie koncepty.
+
+Zakłada się, że znaczenia słów reprezentuje się w przestrzeni semantycznej interpretowanej jako model wektorowy. Każde słowo jest opisywane przez wektor w $k$ wymiarowej przestrzeni, a faktyczne zwiazki znaczeniowe między słowami szacuje się na podstawie odległości między wektorami je opisującymi. Właściwy dobór odpowiedniego wymiaru tej przestrzeni jest istotny dla uzyskania odpowiedniej siły wyrazu stosowanego modelu. Zbyt mały wymiar może być w stanie uchwycić jedynie najbardziej oczywiste koncepty występujące w korpusie. W przypadku doboru zbyt dużego wymiaru przestrzeni korzyści z zastosowania $LSI$ są minimalne. Nadmiernie obszerna reprezentacja jest bliska oryginalnej statystycznej reprezentacji występowania wyrazów w dokumentach i nie pozwala na wyodrębnienie z niej właściwych wzorców.
+
+Wejściem algorytmu $LSI$ jest macierz, w której kolumny reprezentują kolejne unikalne typy zdarzeń, a wiersze określają konteksty, w których kolejne instancje danego zdarzenia występują. Pierwszym krokiem jest zatem reprezentacja korpusu dokumentów w postaci macierzy, gdzie kolumny wyznaczają słowa z korpusu, natomiast wiersze odpowiadają tekstom wchodzącym w skład korpusu. Każdy element macierzy wyznacza częstotliwość występowania słowa w dokumencie. Najczęściej częstotliwości te poddaje się przekształceniom za pomocą funkcji uwzględniających istotność słowa w kontekście dokumentu oraz całego korpusu (por. rozdział 1).
+
+W kolejnym kroku zadana macierz jest analizowana przez technikę redukcji wymiaru przestrzeni, która pozwala na przedstawienie zarówno kolejnych zdarzeń, jak i ich kontekstów jako zbiór wektorów w nowej abstrakcyjnej przestrzeni semantycznej. W oryginalnym podejściu do $LSI$ stosowanym algorytmem jest \textit{rozkład macierzy według wartości osobliwych}. Otrzymana reprezentacja wektorowa stanowi rezultat algorytmu $LSI$. W wyniku działania $SVD$ uzyskuje się macierze profili słów i dokumentów, na podstawie których można kalkulować odległości między parami tekstów i parami wyrazów. Odległości te stanowią oszacowanie faktycznego podobieństwa znaczeniowego.
+
+Człowiek jest w stanie poznać znaczenie danego słowa z kontekstu na podstawie znaczeń innych słów w tym kontekście. Model wektorowy będący rezultatem $LSI$ również aplikuje tę zasadę, ponieważ dzięki zastosowaniu $SVD$ profil słowa jest liniową kombinacją informacji niesionych przez pozostałe słowa. $LSI$ wprowadza natomiast kilka znaczących uproszczeń:
+
+\begin{itemize}
+    \item Koncept w tekście jest upraszczany do postaci wzorca współwystępowania słów, np. słowa: aktor, film, rola definiują koncept dotyczący tematyki filmowej.
+    \item Teksty z korpusu są reprezentowane jako zbiory słów, w których oryginalna kolejność słów nie ma znaczenia. Ignoruje się zatem wszelkie relacje gramatyczne i logiczne między słowami i zdaniami. 
+    \item Przyjmuje się, że słowa mają tylko jedno znaczenie. Taka strategia sprawdza się dla znaczej większości wyrazów, jednak w przypadku słów dwuznacznych mogło by się wydawać, że stanowi istotną przeszkodę. Okazuje się jednak, że nawet słowa o dużej liczbie znaczeń nie powstrzymują $LSI$ przed właściwym modelowaniem konceptów, gdyż w średnim przypadku wpływ takich słów jest pomijalny.
+\end{itemize}
+
+\section{Rozkład macierzy według wartości osobliwych}
+\textit{Rozkład macierzy według wartości osobliwych} (ang. \textit{singular value decomposition (SVD)}) jest metodą przeprowadzania rozkładu macierzy o dużym wymiarze prowadzącą do otrzymania nowej reprezentacji o zredukowanym wymiarze.
+
+Niech $\mathbf{A} \in \mathbb{R}^{m \times n}$ będzie macierzą, w której maksymalna liczba liniowo niezależnych wektorów tworzących kolumny bądź wiersze (rząd) wynosi $r$. Wtedy w wyniku $SVD$ znajduje się macierze $\mathbf{U}, \mathbf{\Sigma}, \mathbf{V}$ takie, że:
+
+\[
+\mathbf{A} = \mathbf{U}\mathbf{\Sigma}\mathbf{V}^T
+\]
+
+oraz macierze te spełniają następujące własności:
+
+\begin{itemize}
+    \item $\mathbf{U} \in \mathbb{R}^{m \times r}$ - macierz, gdzie każda z kolumn jest wektorem jednostkowym oraz iloczyn dowolnej pary kolumn jest równy zero (macierz kolumnowo ortogonalna)
+    \item $\mathbf{\Sigma} \in \mathbb{R}^{r \times r}$ - macierz diagonalna, w której elementy występujące na przekątnej są wartościami osobliwymi (własnymi) macierzy $\mathbf{A}$
+    \item $\mathbf{V}^T \in \mathbb{R}^{r \times n}$ - macierz, gdzie każdy z wierszy jest wektorem jednostkowym oraz iloczyn dowolnej pary wierszy jest równy zero (macierz wierszowo ortogonalna).
+\end{itemize}
+
+\subsection{Interpretacja SVD}
+Powyższy rozkład macierzy w kontekście ukrytego indeksowania semantycznego posługuje się pojęciem \textit{konceptu} lub \textit{cechy}. W przypadku zagadnień przetwarzania języka naturalnego, macierz $\mathbf{A}$ zawiera ważone częstości występowania słów w dokumentach. W praktyce rząd oryginalnej macierzy nie pokrywa się z liczbą możliwych do wyodrębnienia cech. Zamiast tego, w ramach każdego dokumentu odkrywa się wiele konceptów o różnych stopniach nasilienia. Wyodrębnione koncepty interpretuje się jako tematyki poruszane w analizowanych tekstach. Wiersze macierzy $\mathbf{U}$ przedstawiają profile dokumentów, w których każdy element wyznacza wagę przynależności tekstu do poszczególnych konceptów. Analogicznie każda kolumna macierzy $\mathbf{V}^T$ wyznacza związek każdego słowa z wykrytą cechą. W macierzy $\mathbf{\Sigma}$ wartości na przekątnej opisują znaczenie (siłę wyrazu) poszczególnych konceptów, np. koncept może mieć większe znaczenie, jeżeli zbiór elementów macierzy $\mathbf{A}$ dostarcza więcej informacji o danej tematyce i relacjach między nią a dokumentami i słowami. 
+
+Istotną właściwością SVD jest fakt, że liczbą cech w profilach słów i dokumentów można dowolnie manipulować, dążąc do różnych stopni przybliżenia właściwego rozkładu macierzy. Eliminuje się wtedy z macierzy $\mathbf{U}$ oraz $\mathbf{V}$ te wiersze (kolumny), które odpowiadają cechom o najmniejszym znaczeniu, otrzymując rozkład aproksymowany. Ponieważ znaczenie konceptów jest determinowane przez wartości osobliwe w diagonalnej macierzy $\mathbf{\Sigma}$, zatem usuwa się te kolumny lub wiersze, dla których te wartości własne są najmniejsze. Eliminacja najmniej znaczących cech prowadzi do zasadniczej redukcji początkowych wymiarów macierzy. Ta możliwość jest niezwykle istotna dla przetwarzania dużych zbiorów danych.
+
+Siła powstałego modelu przejawia się w tym, że skompresowane wektory dokumentów czy słów wywnioskowane w procesie obliczania rozkładu wiążą w sobie zależności między wszystkimi elementami początkowej macierzy. Dzięki temu zredukowany do pewnej wybranej liczby cech profil słowa niesie informację o częstotliwości występowania tego konkretnego pojęcia w tekstach z korpusu oraz ujmuje powiązania danego słowa z kontekstami, gdzie dane słowo występuje. Podobnie zredukowane profile dokumentów opisują relacje z wyrazami obecnymi w różnych kontekstach w korpusie. Zmiana jakiegokolwiek elementu oryginalnej macierzy najczęściej prowadzi do zmiany współczynników w każdym skompresowanym profilu słowa. Taka numeryczna reprezentacja czuła na zmiany w relacjach między wyrazami a tekstami pozwala na uchwycenie jak słowa są używane w naturalnych kontekstach oraz wywnioskowanie ich znaczenia na podstawie ich użycia.
+
+\subsection{SVD a rozkład macierzy metodą gradientową}
+Metoda SVD niekoniecznie sprawdza się dla praktycznych stosowań związanych z przetwarzaniem dużych zbiorów danych. Przeprowadzając rozkład, należy znać wszystkie wartości oryginalnej macierzy, co w przypadku systemów rekomendacyjnych jest zadaniem niemożliwym - pojedynczy użytkownicy oceniają jedynie niewielką część produktów, stąd macierz ocen jest macierzą niezwykle rzadką. Nie zakłada się domyślnych wartości ocen w przypadku ich braku, gdyż takie założenie prowadziłoby do zafałszowanych profili użytkowników. 
+
+W zadaniu klasyfikacji tekstów znana jest pełna macierz występowania słów w dokumentach z korpusu. Należy jednak brać pod uwagę wielkość wolumenów danych jakimi dysponują obecne repozytoria danych. Zastosowanie ukrytego indeksowania semantycznego do ekstrakcji konceptów z wykorzystaniem oryginalnie proponowanej metody SVD jest podejściem nieskalowalnym wobec znacznej liczby słów i dokumentów. Ta strategia wiąże się z wysoką kosztownością obliczeniową, a uzyskany model semantyczny jest trudny do uaktualnienia w przypadku pojawiających się nowych dokumentów.
+
+Z tego powodu poszukuje się metod przybliżających rozkład SVD ograniczających zależność od zwiększającego się rozmiaru danych, niewymagających znajomości wszystkich elementów macierzy oraz pozwalających na sekwencyjny dostęp do obserwacji przechowywanych w bazie danych. Simon Funk w swoim algorytmie dla systemu rekomendacyjnego przybliżał rozkład według wartości osobliwych właśnie algorytmem gradientowym. Uzyskał 6.31 \% poprawę błędu średniokwadratowego predykcji ocen użytkowników wobec algorytmów stosowanych przez Netflix przed ogłoszeniem konkursu. Biorąc pod uwagę dobre wyniki tej metody, w tej pracy zbadano wydajność iteracyjnego algorytmu stochastycznego spadku wzdłuż gradientu jako metodę rozkładu macierzy występowania słów w dokumentach. Wywnioskowane profile służą w następnej kolejności do klasyfikacji tekstów do zadanych dziedzin.
+
+\subsection{Podejście do obliczania SVD z biblioteki gensim}
+Interesującą strategię ukrytego indeksowania semantycznego dokumentów można znaleźć w bibliotece \textit{gensim}\footnote{https://radimrehurek.com/gensim/} zaimplementowanej w języku Python. Dostępny tam algorytm oblicza rozkład SVD, pozwalając na przetwarzanie korpusów nie mieszczących się w pamięci operacyjnej. Co ważne, implementuje tzw. algorytm \textit{one-pass}, który zakłada, że każdy z dokumentów jest analizowany tylko jeden raz w procesie budowy modelu semantycznego. Algorytm został omówiony w pracy doktorskiej autora biblioteki gensim Radima Rehurka. Jest to bardzo istotna różnica w porównaniu do algorytmu gradientowego, który wymaga przeprowadzenia wielu iteracji, aby uzyskać jak najlepsze przybliżenie rozkładu macierzy. Umożliwienie jedynie jednokrotnej analizy każdego z dokumentów jest bardzo korzystne dla systemów, w których składowanie korpusu bądź iterowanie po nim jest zbyt kosztowne.
+
+Algorytm przed rozpoczęciem kalkulacji rozkładu SVD musi dysponować słownikiem pojęć zawierającym mapowanie między słowami, a ich liczbowymi identyfikatorami. Słownik ten udostępnia funkcjonalność odfiltrowania słów zbyt częstych i zbyt rzadkich oraz implementuje funkcję przekształcającą kolekcję słów (otrzymaną z dokumentu po procesie tokenizacji) na postać bag-of-words. W praktyce zatem przy budowie modelu semantycznego dla korpusu tekstów należy przeprowadzić dwie iteracje po zbiorze. W trakcie pierwszej buduje się słownik pojęć. Podczas drugiej iteracji każdy z dokumentów jest konwertowany do postaci listy par (identyfikator słowa, waga słowa) oraz uwzględniany w obliczanym rozkładzie SVD. Algorytm agreguje listy par, tworząc zestawy o określonym rozmiarze i dla każdego z nich uaktualnia obliczony rozkład. Im większa liczba dokumentów w zagregowanym zestawie tym krótszy czas działania, natomiast zwiększa się zapotrzebowanie na pamięć.
+
+Biblioteka dostarcza możliwość aktualizacji modelu o nowe dokumenty, zapobiegając jego rozbudowy od nowa dla wszystkich dokumentów. Nie ma natomiast możliwości rozszerzania raz zbudowanego słownika pojęć. Dla dodawanych dokumentów bierze się pod uwagę jedynie te słowa, które już znajdują się w słowniku, wszystkie pozostałe są ignorowane.
+
+Algorytm składuje w pamięci jedynie macierz profili słów oraz macierz diagonalną z rozkładu SVD zawierającą wartości osobliwe macierzy wejściowej.  Ze względu na zapotrzebowanie pamięciowe algorytm potrzebuje zatem następującą liczbę bajtów pamięci: liczba\_słów * liczba\_cech * 8 (liczby podwójnej precyzji), a w trakcie obliczania rozkładu SVD około trzykrotny rozmiar tej pamięci. Do tego doliczyć należy rozmiar słownika pojęć oraz przetwarzanej partii dokumentów.
+
+Biblioteka gensim umożliwia obliczanie wag słów za pomocą metody tf-idf, pozwala na wyspecyfikowanie zarówno lokalnej, jak i globalnej strategii obliczania wagi słowa. Obliczony model semantyczny może być łatwo serializowany oraz ładowany do pliku.
+
+
+\chapter{Opis rozwiązania i ewaluacja}
+
+W tym rozdziale omówiono zakres zadania klasyfikacji dokumentów oraz analizę działania algorytmów wykorzystanych do budowy modelu semantycznego korpusu. Skupiono się na dwóch metodach przeprowadzania ukrytego indeksowania semantycznego: samodzielnie zaimplementowanym podejściu gradientowym oraz strategii dostępnej w bibliotece \textit{gensim}.
+
+Można wyróżnić kilka zasadniczych stanów i funkcjonalności, na które należało zwrócić uwagę w analizowanym problemie klasyfikacji tekstów:
+
+\begin{itemize}
+    \item \textbf{Stan początkowy}, w którym istnieje pewien wejściowy korpus dokumentów. Na jego podstawie buduje się słownik pojęć stanowiący zbiór najbardziej znaczących słów w korpusie z przydzielonymi identyfikatorami.
+    \item \textbf{Budowa modelu semantycznego} z zastosowaniem wybranej techniki ekstrakcji profili. W wyniku tej fazy programu dla każdego analizowanego dokumentu oraz słowa otrzymuje się numeryczny profil z przestrzeni semantycznej.
+    \item \textbf{Budowa klasyfikatora} - wyuczone profile dokumentów oraz przydzielone im kategorie stanowią podstawę do budowy klasyfikatora będącego w stanie przyporządkowywać nowe dokumenty do zadanych dziedzin.
+    \item \textbf{Aktualizacja modelu semantycznego} - repozytorium dokumentów jest wzbogacane o nowe przykłady dokumentów. Model semantyczny wyuczony na podstawie początkowego stanu korpusu ulega z czasem przedawnieniu, stąd konieczność wykorzystania odpowiedniej strategii jego okresowej aktualizacji. Aktualizacja modelu wywołuje zmiany w profilach dokumentów i słów, co prowadzi do konieczności uaktualnienia klasyfikatora, aby jego stan wiedzy odpowiadał aktualnie wyodrębnionym konceptom w modelu semantycznym.
+    \item \textbf{Szybki przydział nowych dokumentów do kategorii} - oczekuje się, że nowe dokumenty napływające do korpusu będą na bieżąco przydzielane do odpowiedniej kategorii. Nowy dokument otrzymuje wektor cech na podstawie istniejącego modelu semantycznego. Tak przydzielony profil jest analizowany przez klasyfikator, który przyporządkowuje tekst do pewnej klasy.
+    
+\end{itemize}
+
+Oczekiwane funkcjonalności systemu klasyfikującego przedstawione są na schemacie \ref{classification_approach}.
+
+\begin{figure}
+    \centering
+    \includegraphics[width=1.0\textwidth]{Schemat_procesu.jpg}
+    \caption{Schemat funkcjonalności planowanego systemu}
+    \label{classification_approach}
+\end{figure}
+
+\section{Budowa słownika pojęć}
+Pierwszym etapem poprzedzającym rozpoczęcie wnioskowania struktury semantycznej korpusu jest przygotowanie słownika słów w nim występujących. Jego zadaniem jest również przechowywanie niezbędnych statystyk występowania pojęć. Uwzględnia się je na etapie obliczania wag słów (podejście tf-idf) lub podczas usuwania słów nieistotnych. Słowa występujące w słowniku są w dalszej części pracy określane jako ,,aktywne''.
+
+\section{Budowa modelu semantycznego}
+W niniejszej pracy analizowano takie podejścia do budowy modelu semantycznego, które nie są zależne pod względem zapotrzebowania na pamięć od rozmiaru korpusu. Zaimplementowane podejście gradientowe iteracyjnie przetwarza zbiór dokumentów, w każdej iteracji ładując do pamięci jego niewielki losowo uporzadkowany podzbiór. Następnie przy wykorzystaniu wzorów gradientowych przeprowadza się wnioskowanie profili słów i dokumentów dla analizowanej partii tekstów. Po zakończeniu iteracji aktualne profile dokumentów są zapisywane do pliku bądź bazy danych. Przez cały czas działania algorytmu w pamięci przechowuje się pełną macierz profili aktywnych słów oraz słownik pojęć. Niezależność pamięciowa i brak konieczności przechowywania w pamięci całej macierzy wystąpień słów w tekstach wynika z opisanej w poprzednim rozdziale własności algorytmu gradientowego, mówiącej, że stosując wzór gradientowy do danej obserwacji (dokument, słowo) należy uaktualnić jedynie wektory cech tego dokumentu i słowa.
+
+W każdej iteracji po wczytaniu dokumentów odrzuca się słowa nieistotne, sprowadza teksty do postaci ,,bag of words'' oraz, na podstawie aktualnego słownika pojęć, oblicza się wagi słów według przyjętej metody przekształcającej (por. rozdział: Metody ekstrakcji cech). Warto zwrócić uwagę, że model ,,bag of words'' przekazuje jedynie informację o wyrazach istniejących w poszczególnych tekstach. Wnioskowanie modelu semantycznego w oparciu jedynie o obserwacje pozytywne, to znaczy takie, które stwierdzają wystąpienie słowa w danym tekście (waga słowa większa niż zero) ogranicza jego zdolność predykcyjną. Profile słów powinny uwzględniać również obserwacje negatywne, które opisują niezwiązanie słowa z danym kontekstem. Reprezentację dokumentu rozszerza się zatem o pewien losowy podzbiór słów, które się w nim nie pojawiają, czyli ich waga jest równa zeru. Dzięki takiemu podejściu semantyczny model predykcyjny uczy się przewidywać, które pojęcia nie pojawiają się w pewnych kontekstach.
+
+Stopień wyuczenia modelu semantycznego monitoruje się na podstawie zbioru walidacyjnego wyodrębionego z obserwacji treningowych. Przygotowując zbiór walidacyjny, wykorzystano 20\% wszystkich obserwacji z wagami dodatnimi oraz losowy zbiór przykładów negatywnych. Proporcja między przykładami pozytywnymi i negatywnymi jest taka sama jak dla zbioru treningowego.
+
+Algorytm gradientowy przyjmuje następujące parametry:
+\begin{itemize}
+    \item liczba cech -- długość profilu dokumentu oraz słowa
+    \item współczynik uczenia
+    \item współczynnik regularyzacji
+    \item współczynnik wag zerowych -- proporcja między obserwacjami pozytywnymi i negatywnymi, tzn. jeżeli współczynnik jest równy 3.0, to do wnioskowania profilu dokumentu wykorzystuje się trzy razy więcej przykładów negatywnych niż pozytywnych
+    \item metoda obliczania wagi słowa -- jedna z następujących strategii: naturalna częstość, metoda binarna, metoda rozszerzona znormalizowana, metoda logarytmiczna
+    \item flaga determinująca użycie odwrotnej częstości jako metody globalnego ważenia termu
+    \item minimalna/maksymalna liczba dokumentów zawierających słowo -- ignorowane są te słowa, które występują poniżej/powyżej zadanego progu liczby dokumentów. Można przekazać zarówno wartość wymierną opisującą minimalny/maksymalny udział dokumentów zawierających słowo, jak i wartość całkowitą wyrażającą bezwględną liczbę dokumentów.
+    \item minimum/maksimum przedziału, z którego losowane są wartości początkowe wektorów cech dokumentów i słów
+    \item współczynnik wyżarzania współczynnika uczącego
+    \item maksymalna liczba iteracji wyuczania modelu
+    \item liczba iteracji w procesie wyuczania nowych profili dokumentów.
+\end{itemize}
+
+Pseudokod \ref{alg:model_building} przedstawia zasadniczą część budowy modelu semantycznego. W przeciwieństwie do Simona Funka, który w swoim algorytmie gradientowym przyjął, że każda cecha w profilu trenowana jest oddzielnie przez pewną liczbę iteracji, w niniejszej pracy zastosowano podejście, w którym dla każdej obserwacji wyucza się wszystkie cechy równocześnie. Podobna strategia była już omawiana w literaturze w kontekście systemów rekomendacyjnych \cite{takacs}. 
+
+\begin{algorithm}
+\KwIn{$T$ - zbiór dokumentów treningowych, $\alpha$ - współczynnik uczenia, $\lambda$ - współczynnik regularyzacji}
+inicjalizuj macierze profili dokumentów $\mathbf{Q}$ oraz profili słów $\mathbf{R}$ wartościami losowymi z określonego przedziału\;
+wydziel zbiór walidacyjny $V$\;
+\While{niespełniony warunek stopu} {
+    załaduj losowo uporządkowaną partię dokumentów ze zbioru treningowego\;
+    przeprowadź konwersję dokumentów do postaci rozszerzonego ,,bag of words''\;
+    $T'$ - zbiór trójek (dokument, słowo, waga) dla aktualnie przetwarzanych dokumentów\;
+    \ForEach{$(d, w, f_{dw}) \in T'$} {
+        oblicz błąd $e_{dw}$ przybliżenia rozkładu macierzy dla elementu $(d, w)$\;
+        \ForEach{cecha k} { 
+            $q'_{dk} \gets q_{dk} + \alpha (e_{dw} r_{kw} - \lambda q_{dk})$\;
+            $r_{kw} \gets r_{kw} + \alpha (e_{dw} q_{dk} - \lambda r_{kw})$\;
+            $q_{dk} \gets q'_{dk}$\;
+        }
+    }
+    
+    warunek stopu: RMSE na zbiorze walidacyjnym nie zmniejszył w ciągu ostatnich dwóch iteracji bądź osiągnięto maksymalną liczbę iteracji
+}
+\caption{Budowa modelu semantycznego metodą gradientową}
+\label{alg:model_building}
+\end{algorithm}
+
+Pseudokod \ref{alg:augmented_bag_of_words} prezentuje w jaki sposób dla pojedynczego dokumentu otrzymywano jego reprezentację w postaci rozszerzonego ,,bag of words'' .
+
+\begin{algorithm}
+\KwIn{$\eta$ - współczynnik wag zerowych,  $\Delta$ - przetwarzany zbiór dokumentów, $f$ - metoda obliczania wagi słowa, np. metoda logarytmiczna, $V$ - zbiór walidacyjny}
+
+ustal zbiór $\Omega$ aktywnych słów występujących w dokumencie\;
+$\Psi \gets $ zbiór $\eta \abs{\Omega}$ losowych słów z pełnego zbioru aktywnych słów w korpusie\;
+$\Theta \gets \{ (doc, word, 0) : word \in \Psi, word \notin \Omega\} \cup \{(doc, word, f(word)) : word \in \Omega\}$\;
+wyeliminuj te trójki, które występują w zbiorze walidacyjnym $V$\;
+
+\caption{Przetwarzanie dokumentu do postaci rozszerzonego ,,bag of words''}
+\label{alg:augmented_bag_of_words}
+\end{algorithm}
+
+\section{Wnioskowanie profili nowych dokumentów}
+
+Mając zbudowany model semantyczny dla pewnego zbioru dokumentów, istotną kwestią jest możliwość wyrażania nowych tekstów w postaci wektora z przestrzeni semantycznej definiowanej przez otrzymany model. Model gradientowy ma tę własność, że do przeprowadzenia takiej operacji wykorzystuje się te same metody, które zostały zastosowane w procesie jego treningu. Podczas wyuczania profilu nowego dokumentu stosuje się natomiast ograniczenie, że wszystkie elementy w macierzy słów pozostają niezmienione. Algorytm wykonuje się do momentu osiągnięcia pewnej założonej maksymalnej liczby iteracji ustalonej eksperymentalnie. Sposób wnioskowania profilu nowego dokumentu przedstawia pseudokod \ref{alg:new_document}.
+
+\begin{algorithm}
+\KwIn{$R$ - macierz profili słów, $d$ - nowy dokument, $\alpha$ - współczynnik uczenia, $\lambda$ - współczynnik regularyzacji}
+inicjalizuj profil nowego dokumentu $\mathbf{q}_d$ wartościami losowymi z określonego przedziału\;
+przeprowadź konwersję dokumentu do postaci rozszerzonego "bag of words"\;
+\While{niespełniony warunek stopu} {
+    $T'$ - zbiór trójek (dokument, słowo, waga) dla nowego dokumentu\;
+    \ForEach{$(d, w, f_{dw}) \in T'$} {
+        oblicz błąd $e_{dw}$ przybliżenia rozkładu macierzy dla elementu $(d, w)$\;
+        \ForEach{cecha k} { 
+            $q_{dk} \gets q_{dk} + \alpha (e_{dw} r_{kw} - \lambda q_{dk})$\;
+        }
+    }
+    
+    warunek stopu: osiągnięto określoną liczbę iteracji
+}
+
+\caption{Wnioskowanie profilu nowego dokumentu}
+\label{alg:new_document}
+\end{algorithm}
+
+\section{Aktualizacja modelu semantycznego}
+W przypadku podejścia gradientowego można rozważać możliwość uaktualnienia istniejącego modelu semantycznego bez konieczności przeprowadzania jego budowy od początku zarówno jeżeli chodzi o dodawanie nowych dokumentów, jak i zmiany w słowniku pojęć. Pojawienie się nowej grupy dokumentów wiąże się z koniecznością rozważenia nowych słów, które uprzednio były traktowane jako zbyt rzadkie bądź prowadzi do odrzucenia tych słów, które od tego momentu występują w korpusie zbyt często. Taka aktualizacja może okazać się jednak zadaniem kosztownym. 
+
+Początkowo, należy wykonać standardowy algorytm gradientowy wnioskowania profili dla nowych dokumentów oraz dla odpowiadających im słów. Warto jednak zwrócić uwagę, że uaktualnienie profili słów ma również wpływ na wektory cech dokumentów, które już w systemie się znajdowały. Aby utrzymać niski błąd aproksymacji rozkładu, powinno się przeprowadzić dodatkowe obliczenia dla profili tekstów, co jest zadaniem utrudnionym szczególnie w przypadku dużych korpusów, ponieważ taka aktualizacja wymagałaby przechowywania dla każdego słowa informacji, w których dokumentach występuje. 
+
+W kolejnym etapie należy uwzględnić również nowy stan słownika pojęć, co ponownie wiąże się z koniecznością uaktualnienia profili słów oraz odpowiadających im profili dokumentów. Wielokrotne uaktualnianie modelu w ten sposób będzie prowadziło do stopniowego zwiększania błędu aproksymacji rozkładu i konieczności rozpoczęcia procesu uczenia od początku. Aktualizacje bez wyuczania od nowa mogą sprawdzić się jedynie w przypadkach nieznacznych zmian modelu, kiedy ich wpływ na błąd aproksymacji jest niewielki.
+
+\section{Korpus testowy}
+Do testowania zaimplementowanego algorytmu gradientowego oraz porównania do podejścia z biblioteki gensim wykorzystano dwa powszechnie dostępnie korpusy dokumentów o różnych charakterystykach: \textit{20newsgroups} oraz \textit{Reuters}.
+
+Korpus Reuters składa się z 10 788 dokumentów podzielonych na 90 kategorii. Na zbiór treningowy i testowy przypada odpowiednio 7 769 i 3 019 artykułów. Poszczególne teksty są przyporządkowane do jednej bądź więcej kategorii, a rozłożenie dokumentów po kategoriach nie jest równomierne. W korpusie występuje 3964 dokumentów z najczęstszej kategorii oraz tylko po dwa dokumenty dla klas najrzadszych. Większość artykułów jest przyporządkowana tylko do jednej kategorii. Artykuły liczą średnio 127 słów, a łącznie w całym korpusie występuje ich 84 873. Szczegółową strukturę zbioru przedstawiono w tabelach \ref{reuters-train}, \ref{reuters-test} oraz \ref{appendix:reuters-structure} w załączniku. 
+
+Korpus 20newsgroups zawiera 18 846 artykułów, z których każdy przydzielony jest do dokładnie jednej z 20 kategorii. Zbiory treningowy i testowy liczą odpowiednio 11 314 oraz 7 532 dokumentów. W artykule występują średnio 284 słowa, a łączna ich liczba w całym korpusie wynosi 386 410. W przeciwieństwie do zbioru Reuters, dokumenty w obu zbiorach rozdzielone są równomiernie na klasy decyzyjne, spośród których niektóre są blisko ze sobą skorelowane i dotyczą bardzo zbliżonych tematów, podczas gdy inne są zupełnie od siebie niezależne. Dostępne kategorie wraz z liczbą przyporządkowanych do nich dokumentów w zbiorze treningowym i testowym przedstawia tabela \ref{appendix:20newsgroups-structure} w załączniku.
+
+\section{Ewaluacja parametrów uczenia modelu semantycznego}
+
+Na proces ewaluacji modelu semantycznego składało się kilka zadań uczenia maszynowego:
+\begin{itemize}
+    \item wyuczanie modelu semantycznego dla korpusu dokumentów treningowych
+    \item wnioskowanie profili dokumentów ze zbioru treningowego i testowego na podstawie uzyskanego modelu semantycznego dla danych treningowych
+    \item wyuczanie algorytmów klasyfikujących na podstawie profilów dokumentów treningowych oraz testowanie na profilach dokumentów testowych.
+\end{itemize}
+
+Model semantyczny w podejściu gradientowym był otrzymywany iteracyjnie. W każdym cyklu następowało przeiterowanie przez zbiór trójek (dokument, słowo, waga) reprezentujących wagi słów dla każdego dokumentu z aktualnej partii. Na potrzeby testów na korpusach 20newsgroups i Reuters w każdej iteracji przetwarzano pełny zbiór dokumentów. W przypadku korpusów o rozmiarach przekraczających pamięć RAM w każdej iteracji przetwarza się jedynie część dokumentów o zadanym rozmiarze.
+
+W procesie wyuczania modelu semantycznego metodą gradientową co pięć iteracji wyliczano aktualną wartość RMSE na zbiorze uczącym i walidacyjnym oraz przeprowadzano trening wybranych klasyfikatorów na podstawie zbioru profilów dokumentów ze zbioru uczącego. Dla modelu otrzymanego po zastosowaniu podejścia gensim analizowano jedynie wyniki klasyfikacji dla ostatecznego modelu. Do testowania jakości klasyfikacji wykorzystywano zbiór testowy dokumentów, z których każdy był mapowany na przestrzeń semantyczną dokumentów treningowych. Uzyskiwano w ten sposób profile testowe wyrażone w kategoriach konceptów wykrytych podczas dotychczasowego procesu uczenia modelu.
+
+Jakość klasyfikacji badano za pomocą następujących miar:
+
+\begin{itemize}
+    \item dokładność -- zbiór 20newsgroups
+    \item precyzja, czułość, miara F1 -- zbiór Reuters.
+\end{itemize}
+
+Rozwiązanie zostało zaimplementowane w języku Python. Korpus 20newsgroups zaczerpnięto z biblioteki \textit{scikit--learn}\footnote{http://scikit-learn.org} udostępniającej narzędzia do eksploracji danych i uczenia maszynowego, natomiast zbiór Reuters z platformy \textit{nltk}\footnote{http://www.nltk.org/} będącej zestawem bibliotek do zadań z kategorii przetwarzania języka naturalnego. Poniższa lista przedstawia listę klasyfikatorów z biblioteki scikit-learn wraz z ich parametryzacją, które wykorzystano podczas ewalacji algorytmu:
+
+\begin{itemize}
+    \item klasyfikator z regresją grzbietową\\ \textit{RidgeClassifier(tol=1e-2, solver='lsqr')}
+    \item klasyfikator kNN z metryką Euklidesową\\ \textit{KNeighborsClassifier(n\_neighbors=10)}
+    \item klasyfikator kNN z metryką kosinusową\\
+    \textit{KNeighborsClassifier(n\_neighbors=10, algorithm='brute', metric='cosine')}
+    \item klasyfikator drzew losowych\\ \textit{RandomForestClassifier(n\_estimators=100)}
+    \item klasyfikator SVM\\ \textit{LinearSVC(penalty='l2', dual=False, tol=1e-3)}
+    \item klasyfikator SVM aproksymowany stochastycznym gradientowym spadkiem\\ \textit{SGDClassifier(alpha=0.0001, n\_iter=50, penalty='elasticnet')}.
+\end{itemize}
+
+Testy dla korpusu 20newsgroups przeprowadzano za pomocą standardowych wersji klasyfikatorów przyporządkowujących każdemu dokumentowi jedną klasę. Ze względu na fakt, że w zbiorze Reuters teskty mogły być przydzielone do więcej niż jednej kategorii wykorzystano strategię ,,jeden przeciw pozostałym'', budując oddzielny klasyfikator dla każdej klasy decyzyjnej.
+
+Algorytm gensim testowano, przyjmując następujący przedział częstotliwości występowania słów w dokumentach: [0.001, 0.33], tzn. aby słowo zostało uznane za aktywne, musiało wystąpić co najmniej w 0.1\% dokumentów oraz maksymalnie w 33\% dokumentów z korpusu. Tabele \ref{gensim-reuters} oraz \ref{gensim-newsgroups} przedstawiają rezultaty przeprowadzonych eksperymentów dla obu korpusów. Stanowiły one punkt odniesienia dla wyników uzyskanych algorytmem gradientowym. Warto zwrócić uwagę na różne zachowanie klasyfikatorów. Dla jednych skuteczność klasyfikacji wzrasta wraz ze zwiększaniem liczby cech, dla innych zaś utrzymuje się na podobnym poziomie bądź spada.
+
+\begin{table}[H]
+\centering
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{@{}llllllll@{}}
+\toprule
+Liczba cech & Linear SVC {[}l2{]} & Perceptron & Random forest & Ridge Classifier & SGD Classifier {[}elasticnet{]} & kNN   & kNN cosine \\ \midrule
+50          & 0.781               & 0.777      & 0.790         & 0.732            & 0.766                           & 0.806 & 0.813      \\
+100         & 0.819               & 0.825      & 0.787         & 0.765            & 0.809                           & 0.804 & 0.820      \\
+150         & 0.835               & 0.820      & 0.781         & 0.786            & 0.826                           & 0.791 & 0.821      \\
+200         & 0.843               & 0.834      & 0.772         & 0.801            & 0.838                           & 0.770 & 0.819      \\
+300         & 0.853               & 0.836      & 0.760         & 0.815            & 0.845                           & 0.716 & 0.817      \\ \bottomrule
+\end{tabular}%
+}
+\caption{Miara F1 klasyfikatorów w zależności od liczby cech, gensim, Reuters}
+\label{gensim-reuters}
+\end{table}
+
+\begin{table}[H]
+\centering
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{@{}llllllll@{}}
+\toprule
+Liczba cech & Linear SVC {[}l2{]} & Perceptron & Random forest & Ridge Classifier & SGD Classifier {[}elasticnet{]} & kNN   & kNN cosine \\ \midrule
+50          & 0.705               & 0.548      & 0.716         & 0.670            & 0.685                           & 0.637 & 0.653      \\
+100         & 0.743               & 0.625      & 0.719         & 0.721            & 0.733                           & 0.618 & 0.629      \\
+200         & 0.771               & 0.682      & 0.727         & 0.754            & 0.763                           & 0.591 & 0.595      \\
+300         & 0.783               & 0.715      & 0.726         & 0.765            & 0.774                           & 0.581 & 0.586      \\
+400         & 0.791               & 0.726      & 0.726         & 0.774            & 0.787                           & 0.577 & 0.590      \\ \bottomrule
+\end{tabular}%
+}
+\caption{Dokładność klasyfikatorów w zależności od liczby cech, gensim, 20newsgroups}
+\label{gensim-newsgroups}
+\end{table}
+
+Po przeprowadzeniu serii testów wstępnych ustalono parametry bazowe, dla których gradientowy model semantyczny prowadził do uzyskania satysfakcjonujących wyników. W kolejnych paragrafach opisujących eksperymenty, jeżeli nie wspomniano inaczej, współczynniki przyjmują poniższe wartości bazowe:
+
+\begin{itemize}
+    \item współczynnik regularyzacji - 0.01,
+    \item współczynnik wag zerowych - 3.0,
+    \item przedział losowych wartości początkowych profili: [-0.01, 0.01]
+    \item miara wyżarzania współczynnnika uczenia - 2.0
+    \item metoda obliczania wagi słowa - logarytmiczna
+    \item przedział częstości występowania słów w dokumentach: [0.001, 0.33]
+    \item liczba iteracji dla wyuczania profili dokumentów testowych: 15.
+\end{itemize}
+
+\subsection{Współczynnik uczenia i liczba cech}
+
+W pierwszych testach rozważano, jaki wpływ na skuteczność klasyfikacji ma dobór liczby cech oraz współczynnika uczenia. Nie ma pewnej powszechnie przyjętej i udowodnionej eksperymentalnie metody prowadzącej do znalezienia właściwej liczby cech. Z reguły przyjmuje ona wartości z przedziału od 100 do 500 i może zależeć zarówno od rozmiaru korpusu, jak i różnorodności konceptów obecnych w zbiorze dokumentów.
+
+W trakcie eksperymentów współczynnik uczenia przyjmował kolejno wartości: 0.001, 0.0025, 0.005, 0.007, a liczba cech wynosiła 50, 100, 150, 200, 300, 400. Dla obu korpusów osiągano wyniki zbliżone do rezultatów osiągniętych za pomocą biblioteki gensim. Tabele \ref{learn_r_reuters} oraz \ref{news_learn_r} przedstawają najlepsze osiągnięte wyniki w ciągu 80 iteracji dla obu korpusów w zależności od przyjętego współczynnika uczenia. Najlepsze wyniki z reguły osiągano dla wartości współczynników mniejszych niż 0.005. Przyczyną może być fakt, że zastosowanie zbyt dużej wartości tego parametru może prowadzić do ominięcia faktycznego minimum aproksymowanego rozkładu.
+
+\begin{table}[]
+\centering
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{@{}lllll@{}}
+\toprule
+Klasyfikator                             & wsp. ucz.=0.001 & wsp. ucz.=0.0025 & wsp. ucz.=0.005 & wsp. ucz.=0.007 \\ \midrule
+kNN                             & 0.770          & 0.782           & 0.774          & 0.767          \\
+kNN cosine                      & 0.791          & 0.789           & 0.771          & 0.763          \\
+Linear SVC {[}l2{]}             & 0.764          & 0.780           & 0.775          & 0.756          \\
+Ridge Classifier                & 0.679          & 0.745           & 0.732          & 0.715          \\
+SGD Classifier {[}elasticnet{]} & 0.737          & 0.744           & 0.692          & 0.663          \\ \bottomrule
+\end{tabular}%
+}
+\caption{Porównanie dokładności klasyfikatorów w zależności od współczynnika uczenia, l. cech = 300, Reuters}
+\label{learn_r_reuters}
+\end{table}
+
+% Please add the following required packages to your document preamble:
+% \usepackage{booktabs}
+\begin{table}[]
+\centering
+\begin{tabular}{@{}llll@{}}
+\toprule
+Klasyfikator                             & wsp. ucz.=0.001 & wsp. ucz.=0.0025 & wsp. ucz.=0.005 \\ \midrule
+kNN                             & 0.679          & 0.712           & 0.715          \\
+kNN cosine                      & 0.716          & 0.731           & 0.720          \\
+Linear SVC {[}l2{]}             & 0.790          & 0.768           & 0.746          \\
+Random forest                   & 0.735          & 0.708           & 0.638          \\
+Ridge Classifier                & 0.781          & 0.792           & 0.777          \\
+SGD Classifier {[}elasticnet{]} & 0.792          & 0.775           & 0.761          \\ \bottomrule
+\end{tabular}
+\caption{Porównanie dokładności klasyfikatorów w zależności od współczynnika uczenia, l. cech = 400, 20newsgroups}
+\label{news_learn_r}
+\end{table}
+
+Wykresy \ref{fig:165_f1} oraz \ref{fig:167_f1} porównują zmiany wartości miary F1 dla najmniejszego i największego badanego współczynnika uczenia dla testowanych klasyfikatorów. Warto zauważyć, że jego wysoka wartość prowadzi do szybkiej stabilizacji miary F1, która pozostaje niemal stała dla większości algorytmów do ostatniej iteracji. Dla większych wartości współczynnika uczenia, wyróżnia się zachowanie algorytmu kNN (oraz Random Forest dla korpusu 20newsgroups), dla którego skuteczność działania spada od pewnego momentu, co zostanie wyjaśnione w dalszej części pracy. Wpływ liczby elementów w wektorach profili na zdolność dyskryminacyjną modelu można zaobserwować na podstawie klasyfikatora Linear SVC (wykres \ref{fig:reut_features_svc}). W tym przypadku zwiększanie liczby cech prowadzi do poprawy wyników, jednak zależność ta nie jest tak wyraźna dla wszystkich analizowanych algorytmów. Dalsze analizy potwierdziły, że dopuszczenie większej liczby elementów profili zmniejszało błąd średniokwadratowy na zbiorze walidacyjnym, czyli model semantyczny był w stanie lepiej przewidywać wartości wag na parach (dokument, słowo) spoza zbioru treningowego. Należy jednak pamiętać, że zbyt duża liczba elementów wektorów profili może sprzyjać występowaniu efektu przetrenowania, ponieważ zwiększa się wymiarowość problemu, a co za tym idzie stopień skomplikowania optymalizowanej funkcji błędu.
+
+\begin{figure}[]
+\minipage{0.49\textwidth}
+  \includegraphics[width=\linewidth]{165_f1.jpg}
+  \caption{Miara F1 - Reuters (wsp. ucz. = 0.001, l. cech. = 300)}\label{fig:165_f1}
+\endminipage\hfill
+\minipage{0.49\textwidth}%
+  \includegraphics[width=\linewidth]{167_f1.jpg}
+  \caption{Miara F1 - Reuters (wsp. ucz. = 0.007, l. cech. = 300)}\label{fig:167_f1}
+\endminipage
+\end{figure}
+
+\begin{figure}[]
+\minipage{0.49\textwidth}
+  \includegraphics[width=\linewidth]{190acc.jpg}
+  \caption{Dokładność - 20newsgroups, wsp. ucz. = 0.001, l.cech=400}\label{fig:190acc}
+\endminipage\hfill
+\minipage{0.49\textwidth}%
+  \includegraphics[width=\linewidth]{192_acc.jpg}
+  \caption{Dokładność - 20newsgroups, wsp. ucz. = 0.005, l.cech=400}\label{fig:192acc}
+\endminipage\hfill
+\end{figure}
+
+\begin{figure}[]
+\minipage{0.49\textwidth}%
+  \includegraphics[width=\linewidth]{reut_features_svc.jpg}
+  \caption{Linear SVC, Reuters, liczba cech a miara F1, wsp. ucz. = 0.001}\label{fig:reut_features_svc}
+\endminipage\hfill
+\minipage{0.49\textwidth}
+  \includegraphics[width=\linewidth]{167_reut_knn_f1vsrmse.jpg}
+  \caption{RMSE a skuteczność klasyfikacji, Reuters, kNN, wsp. ucz. = 0.007, l.cech=300}\label{fig:167_reut_knn_f1vsrmse}
+\endminipage\hfill
+\end{figure}
+
+Dla wartości współczynnika większych i równych 0.0025 w przypadku obu korpusów zaobserwowano stopniowe pogarszanie wyników uzyskanych przez klasyfikator kNN z metryką Euklidesową po przekroczeniu pewnej liczby iteracji. Analizując wykres \ref{fig:167_reut_knn_f1vsrmse} obrazujący zmiany RMSE w trakcie uczenia modelu semantycznego oraz zmiany skuteczności klasyfikacji widać, że wartość miary F1 znacząco pogarsza się od momentu, kiedy błąd przybliżenia rozkładu macierzy zaczyna wzrastać dla zbioru walidacyjnego. Warto zwrócić uwagę, że na tym samym wykresie błąd na zbiorze uczącym wciąż maleje. Stąd ważne jest, aby monitorować błąd średniokwadratowy dla danych spoza zbioru treningowego i przerwać działanie algorytmu, jeżeli jego wartość przestaje maleć, aby uniknąć efektu nadmiernego dopasowania.
+
+Porównująć wykresy \ref{fig:190_news_rmse} oraz \ref{fig:192_news_rmse} pokazujące zmiany RMSE podczas treningu modelu semantycznego dla korpusu 20newgroups, można zaobserwować, że w przypadku niskiej wartości współczynnika uczenia (0.001) krzywa błędu średniokwadratowego na zbiorze treningowym obserwacji spada dużo łagodniej, co świadczy o tym, że model semantyczny uczy się powoli. Stąd najlepsze wyniki klasyfikacji były uzyskiwane dopiero po przekroczeniu maksymalnej liczby iteracji. Dla wyższej wartości współczynnika uczenia, RMSE na zbiorze treningowym spada dużo gwałtowniej, a błąd na zbiorze walidacyjnym zaczyna od pewnego momentu nieznacznie wzrastać.
+
+\begin{figure}[]
+\minipage{0.49\textwidth}
+  \includegraphics[width=\linewidth]{190_news_rmse.jpg}
+  \caption{RMSE, 20newsgroups, wsp. ucz. = 0.001, l.cech=400}\label{fig:190_news_rmse}
+\endminipage\hfill
+\minipage{0.49\textwidth}%
+  \includegraphics[width=\linewidth]{192_news_rmse.jpg}
+  \caption{RMSE, 20newsgroups, wsp. ucz. = 0.005, l.cech=400}\label{fig:192_news_rmse}
+\endminipage\hfill
+\end{figure}
+
+\subsection{Dobór wartości początkowych}
+
+Dobór wartości początkowych macierzy profili dokumentów i słów ma wpływ na zbieżność algorytmu  gradientowego. Należy zadbać, aby były to wartości losowe. W przypadku, gdy obie macierze są zainicjowane tą samą wartością, wszystkie elementy profili dokumentów i macierzy będą w każdej iteracji algorytmu równe sobie, co sprowadzi się do uzyskania modelu semantycznego z profilami z jedną cechą. 
+
+Podczas eksperymentów monitorowano działanie algorytmu dla kilku przypadków, w których liczby losowano, używając generatora liczb losowych o rozkładzie jednostajnym. Wykres \ref{fig:initial_vals_accuracy} przedstawia jak zmieniała się skuteczność klasyfikatora SVM w trakcie wnioskowania modelu semantycznego w zależności od przedziału, z którego losowano początkowe wartości. Badany model gradientowy zachowywał się najlepiej dla wartości startowych skupionych stosunko blisko zera. Na przykładzie współczynnika uczenia 0.001 widać, że dla przedziałów [-0.001, 0.001], [-0.01, 0.01], [-0.1, 0.1] algorytm ma tendencję do uzyskiwania szybszej zbieżności wraz ze zwiększaniem dopuszczalnego przedziału, co niekoniecznie skutkuje uzyskaniem lepszego wyniku końcowego. Warto zwrócić uwagę, że dla przedziału [-0.01, 0.01] uzyskano lepszą ostateczną skuteczność klasyfikacji niż dla wag zainicjowanych z przedziału [-0.1, 0.1]. Na podstawie przeprowadzonych eksperymentów stwierdzono, że właśnie przedział początkowy [-0.01, 0.01] prowadził do uzyskania najlepszego modelu semantycznego (rekomendowano go również w pracy analizującej zastosowanie metody gradientowego spadku do systemów rekomendacyjnych \cite{takacs}).
+
+Badając zachowanie błędu średniokwadradowego na zbiorze walidacyjnym w zależności od ustalonych wartości początkowych widać, że dla wartości z przedziału [-0.1, 0.1] wystąpiło zjawisko przeuczenia, a wartości początkowe macierzy z przedziału [-1.0, 1.0] skutkowały uzyskaniem znacznego błędu przybliżenia macierzy i wymagałyby istotnie dłuższego procesu uczenia do osiągnięcia właściwego rozkładu.
+
+\begin{figure}[]
+\minipage{0.49\textwidth}
+  \includegraphics[width=\linewidth]{learn_rates_news_sgd_svm.jpg}
+  \caption{Dokładność klasyfikatora w zależności od wartości początkowych macierzy, 20newsgroups, klasyfikator SVM, wsp. ucz. = 0.001, l.cech = 400}\label{fig:initial_vals_accuracy}
+\endminipage\hfill
+\minipage{0.49\textwidth}%
+  \includegraphics[width=\linewidth]{learn_rates_news_rmse_sgd_svm.jpg}
+  \caption{RMSE za zbiorze walidacyjnym w zależności od wartości początkowych macierzy, 20newsgroups, klasyfikator SVM, wsp. ucz. = 0.001, l.cech = 400}\label{fig:initial_vals_rmse}
+\endminipage\hfill
+\end{figure}
+
+\subsection{Wagi zerowe}
+
+Na przykładzie zbioru 20newgsroups, zawężając zakres przetwarzanych słów w korpusie do takich, które występują w co najmniej w 0.01\% dokumentów, a maksymalnie w 33\% dokumentów otrzymuje się zbiór roboczy liczący 12 462 słów. Na zbiór treningowy korpusu przypada 11 314 dokumentów, co przekłada się na ok. 141 mln wag słów, z czego ok. 905 tys. to słowa o wagach dodatnich. Widać zatem, że rozkładana macierz wystąpień słów w dokumentach jest bardzo rzadka -- zawiera jedynie 0.6 \% niezerowych elementów. W kolejnych eksperymentach sprawdzono, jaki wpływ na skuteczność klasyfikatorów ma uwzględnianie w procesie wnioskowania profili różnej liczby wag słów niewystępujących w dokumentach, czyli o wagach zerowych. 
+
+Przetwarzając każdy dokument, brano pod uwagę losowe słowa spoza danego tekstu. Ich liczba była wielokrotnością słów występujących w dokumencie. Zbadano następujące wielokrotności: 0, 1, 2, 3, 5. Przyjęto wartość współczynnika uczenia równą 0.001, a liczbę cech równą 300 dla zbioru Reuters i 400 dla zbioru 20newsgroups oraz zachowano pozostałe współczynniki stałe ustalone dla poprzednich testów. 
+
+Tabele \ref{zero_w_news} oraz \ref{zero_w_reut} przedstawiają rezultaty eksperymentów. Wynika z nich, że pominięcie słów, które nie pojawiają się w danym dokumencie nie pozwala na osiągnięcie dobrej skuteczności klasyfikatora. Najlepszą wartość miary F1 (0.604), kiedy nie brano pod uwagę wag zerowych, uzyskano dla korpusu Reuters, stosując algorytm kNN z miarą kosinusową. Wzrost liczby słów o wagach zerowych prowadził do zwiększenia najlepszej osiągniętej skuteczności klasyfikatora. Już ich liczba równa liczbie aktywnych słów obecnych w dokumencie prowadziła do wysokich wyników kategoryzacji.
+
+\begin{table}[]
+\centering
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{@{}llllll@{}}
+\toprule
+Klasyfikator                             & zero\_w=0.0 & zero\_w=1.0 & zero\_w=2.0 & zero\_w=3.0 & zero\_w=5.0 \\ \midrule
+kNN                             & 0.217       & 0.649       & 0.673       & 0.677       & 0.692       \\
+kNN cosine                      & 0.282       & 0.678       & 0.705       & 0.710       & 0.730       \\
+Linear SVC {[}l2{]}             & 0.427       & 0.766       & 0.781       & 0.787       & 0.795       \\
+Random forest                   & 0.262       & 0.697       & 0.721       & 0.734       & 0.734       \\
+Ridge Classifier                & 0.420       & 0.739       & 0.768       & 0.781       & 0.792       \\
+SGD Classifier {[}elasticnet{]} & 0.386       & 0.754       & 0.775       & 0.785       & 0.792       \\ \bottomrule
+\end{tabular}%
+}
+\caption{Zależność między współczynnikiem doboru wag zerowych a najlepszą dokładnością klasyfikatora - 20newsgroups}
+\label{zero_w_news}
+\end{table}
+
+\begin{table}[]
+\centering
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{@{}llllll@{}}
+\toprule
+Klasyfikator                             & zero\_w=0.0 & zero\_w=1.0 & zero\_w=2.0 & zero\_w=3.0 & zero\_w=5.0 \\ \midrule
+kNN                             & 0.478       & 0.721       & 0.752       & 0.765       & 0.782       \\
+kNN cosine                      & 0.604       & 0.776       & 0.787       & 0.791       & 0.800       \\
+Linear SVC {[}l2{]}             & 0.452       & 0.735       & 0.765       & 0.758       & 0.754       \\
+Ridge Classifier                & 0.408       & 0.623       & 0.660       & 0.684       & 0.681       \\
+SGD Classifier {[}elasticnet{]} & 0.419       & 0.723       & 0.736       & 0.728       & 0.722       \\ \bottomrule
+\end{tabular}%
+}
+\caption{Zależność między współczynnikiem doboru wag zerowych a najlepszą wartością miary F1 klasyfikatora - Reuters}
+\label{zero_w_reut}
+\end{table}
+
+\subsection{Metody obliczania lokalnej wagi słowa}
+
+Kolejne testy dotyczyły obliczania lokalnej wagi słowa. Przetestowano następujące metody: logarytmiczną, rozszerzoną znormalizowaną ze współczynnikiem K = 0.5 oraz metodę binarną dla dwóch współczynników uczenia: 0.001 oraz 0.0025. Wszystkie metody prowadziły do zbliżonych rezultatów klasyfikacji. Dobre wyniki osiągała nawet najprostsza metoda binarna, która mogła sprawdzić się na przetestowanych zbiorach ze względu na niezbyt dużą liczbę słów przypadającą na każdy dokument. Dla obu korpusów zaobserwowano, że zastosowanie strategii rozszerzonej znormalizowanej skutkowało spowolnieniem procesu uczenia. Najlepsze wyniki uzyskane dla każdej z metod przedstawia tabela \ref{weight_tab}.
+
+% Please add the following required packages to your document preamble:
+% \usepackage{booktabs}
+% \usepackage{graphicx}
+\begin{table}[]
+\centering
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{@{}lllll@{}}
+\toprule
+Korpus       & Klasyfikator        & Dokładność / Miara F1 & Metoda obliczania wagi & Współczynnik uczenia \\ \midrule
+20newsgroups & Linear SVC {[}l2{]} & 0.798                 & rozszerzona            & 0.0025               \\
+20newsgroups & Ridge Classifier    & 0.788                 & logarytmiczna          & 0.0025               \\
+20newsgroups & Ridge Classifier    & 0.793                 & binarna                & 0.0025               \\
+Reuters      & kNN cosine          & 0.792                 & logarytmiczna          & 0.001                \\
+Reuters      & kNN cosine          & 0.779                 & rozszerzona            & 0.0025               \\
+Reuters      & kNN cosine          & 0.766                 & binarna                & 0.0025               \\ \bottomrule
+\end{tabular}%
+}
+\caption{Porównanie najlepszych wyników klasyfikacji ze względu na metodę obliczania wagi i współczynnik uczenia}
+\label{weight_tab}
+\end{table}
+
+\subsection{Współczynnik regularyzacji}
+
+W trakcie eksperymentów związanych z doborem różnych wartości współczynnika uczenia stwierdzono spadek skuteczności algorytmu kNN z metryką Euklidesową oraz algorytmu Random Forest od pewnego momentu trenowania modelu semantycznego. Postanowiono sprawdzić jak wspomniane klasyfikatory będą zachowywać się w zależności od następujących wartości współczynników regularyzacji: 0.01, 0.1, 0.2, 0.4. Testy przeprowadzono dla parametru uczenia równego 0.0025. 
+Wykres \ref{fig:news_knn_regul_fs} obrazuje zachowanie klasyfikatora kNN w zależności od wartości parameteru regularyzacyjnego.
+
+Wartość współczynnika wynosząca 0.01 nie była wystarczająca, aby zapobiec nadmiernemu dopasowaniu. Na wykresie widać jak dokładność spada od pewnego momentu. Dziesięciokrotne zwiększenie wartości parametru znacznie ogranicza szybkość spadku dokładności, lecz nie eliminuje całkowicie jego występowania. Najlepsze rezultaty uzyskano dla wartości 0.2, dla której zarówno klasyfikator kNN, jak i Random Forest zdołały osiągnąć najwyższą skuteczność. Dobierając odpowiednią wartość współczynnika regularyzacji należy pamiętać, że zbytnie penalizowanie funkcji błędu obniża zdolność uczenia klasyfikatora, co wiąże się z bardzo powolnym spadkiem błędu średniokwadratowego. Takie właśnie zachowanie zaobserwowano dla najwyższej badanej wartości parametru.
+
+\begin{figure}[]
+\centering
+  \includegraphics[width=0.49\textwidth]{news_knn_regul_fs.jpg}
+  \caption{Dokładność klasyfikatora w zależności od parametru regularyzacji, kNN, 20newsgroups}\label{fig:news_knn_regul_fs}
+\end{figure}
+
+\section{Czas działania}
+Eksperymenty wydajnościowe przeprowadzano na serwerze o następujących parametrach: 
+\begin{itemize}
+\item 32 GB RAM
+\item liczba CPU: 8
+\item Procesor Intel(R) Xeon(R) CPU E3-1245 V2 @ 3.40GHz
+    
+\end{itemize}
+
+Istotnym czynnikiem rozważanym podczas ewaluacji działania algorytmu ekstrakcji cech był czas potrzebny na wyuczenie modelu semantycznego. W oparciu o eksperymenty przeprowadzone na zbiorze 20newsgroups, zaobserwowano, że algorytm gradientowy był o kilka rzędów wielkości wolniejszy niż algorytm dostępny w bibliotece gensim.
+
+W celu przyspieszenia obliczeń algorytmu gradientowego dla profili dokumentów i słów oraz wartości RMSE dla zbioru treningowego i walidacyjnego zastosowano biblioteki \textit{numpy}\footnote{www.numpy.org/} oraz \textit{numba}\footnote{https://numba.pydata.org/}. Pakiet numpy daje możliwość wykonywania wydajnych operacji na wielowymiarowych tablicach oraz udostępnia obliczenia z zakresu algebry liniowej. Dzięki użyciu numpy zoptymalizowano wykonywanie podstawowych operacji wektorowych wynikających z zastosowania wzorów gradientowych. Numba za to jest biblioteką, która pozwala na znaczne przyspieszenie wykonania kodu napisanego w języku Python poprzez generowanie na jego podstawie zoptymalizowanego kodu maszynowego za pomocą infrastruktury kompilatora \textit{LLVM} \footnote{https://llvm.org/}. Użycie jest bardzo proste, mianowicie wystarczy optymalizowaną funkcję uzupełnić o dekorator @numba.jit, dzięki któremu dla tej funkcji zostanie wygenerowany wydajny kod maszynowy. Wspomniany dekorator pozwala na przekazanie zestawu parametrów, spośród których w implementacji algorytmu gradientowego wykorzystano dwa:
+
+\begin{itemize}
+    \item nopython -- wymusza kompilację funkcji do najbardziej wydajnego kodu, natomiast narzuca ograniczenia w stosowanych typach wewnątrz funkcji. W momencie przeprowadzania eksperymentów biblioteka nie wspierała na przykład tablic numpy zawierających obiektów inne niż typy prymitywne.
+    \item cache -- pozwala na wykorzystanie plikowego cache skracającego czas wykonania funkcji jeżeli została ona już skompilowana przed poprzednim wywołaniem.
+\end{itemize}
+
+Podczas testów w każdym cyklu uczenia algorytmu gradientowego przetwarzano wszystkie dokumenty ze zbioru treningowego oraz brano pod uwagę liczbę wag zerowych dla każdego dokumentu wynoszącą trzykrotność liczby wag niezerowych. W przypadku wyuczania bez wykorzystania numby średni czas takiego cyklu dla korpusu 20newsgroups wynosił 54.90 sekund, podczas gdy po jej zastosowaniu uległ skróceniu do 4.73 sekund.
+
+Jednym z wymagań postawionych dla algorytmu był fakt, że nie można było przechowywać całego zbioru dokumentów w pamięci. Algorytm gradientowy wymaga zaś wielokrotnego iterowania po zbiorze treningowym, aby osiągnąć jak najlepszą aproksymację rozkładu macierzy. Skutkuje to dodatkowym narzutem czasowym ze względu na konieczność ładowania do pamięci kolejnych partii zbioru treningowego oraz odpowiedniego przetworzenia dokumentu w postaci tekstowej do postaci rozumianej przez algorytm. Duże znaczenie dla ostatecznego czasu działania ma zatem czas poświęcony na:
+
+\begin{itemize}
+    \item załadowanie z bazy danych i przekształcenie kolejnych grup dokumentów z postaci tekstowej do postaci rozszerzonego ,,bag of words'' z zastosowaniem tf-idf
+    \item losowy dobór słów z wagami zerowymi
+    \item wyłączenie ze zbioru treningowego tych słów, które stanowią zbiór walidacyjny
+    \item zapewnienie losowej kolejności słów analizowanych przez algorytm przy każdej iteracji
+    \item wyliczenie RMSE na zbiorze walidacyjnym w celu sprawdzania spełnienia warunku stopu
+    \item zapis wyuczonych profili dokumentów dla aktualnie przetwarzanej grupy
+\end{itemize}
+
+W przypadku korpusu 20newgroups problem składowania wszystkich tekstów w pamięci nie stanowił problemu, jednak w trakcie eksperymentów dokumenty były przekształcane tak jak w przypadku korpusów o dużych rozmiarach, to znaczy dla każdej iteracji wykonywano powyższe wymienione kroki przed wyuczaniem profilów. Wykonanie 80 iteracji dla całego korpusu zajmowało średnio 20 minut z czego ok. 6 minut było poświęcone na właściwe wnioskowanie profili, a pozostała część czasu na wymienione powyżej etapy algorytmu.
+
+Ogromną przewagę zarówno ze względu na czas wykonania, jak i dostęp do dokumentów wobec rozwiązania gradientowego ma algorytm dostępny w bibliotece gensim, gdzie budowa modelu semantycznego wymaga jedynie dwukrotnego przeiterowania przez zbiór treningowy. Całkowity czas budowy modelu dla korpusu 20newsgroups wynosił średnio jedynie 36 sekund.
+
+\section{Wybór algorytmu ekstrakcji cech}
+Oba testowane algorytmy spełniały konieczne wymaganie, aby ilość pamięci potrzebnej do ich działania była niezależna od rozmiaru zbioru dokumentów. Eksperymenty przeprowadzone na korpusach 20newsgroups oraz Reuters pokazują, że gradientowo aproksymowany rozkład macierzy wystąpień słów prowadzi do uzyskania modelu predykcyjnego, który dorównuje modelowi uzyskanemu w wyniku zaaplikowania algorytmu z biblioteki gensim.
+
+Istotną wadą w przypadku metody gradientowej jest konieczność wielokrotnego iterowania po korpusie, co wiąże się z dużym obiążeniem bazy danych podczas wczytywania każdej partii dokumentów do pamięci, a następnie zapisywaniem uaktualnianych profilów do bazy danych po zakończeniu iteracji. Każdy z dokumentów musi być przekształcany do reprezentacji krotkowej (dokument, słowo, waga tf-idf), co dodatkowo wydłuża czas działania. Istnieje możliwość usprawnienia tego kroku, w którym przetworzone reprezentacje są zapisywane na dysku w oddzielnym repozytorium danych i wczytywane przed każdym cyklem uczenia. W przypadku algorytmu gensim budowa modelu wymaga jedynie dwóch iteracji po korpusie, każdy dokument jest przekształcany do postaci wektorowej jeden raz. 
+
+Kolejną kwestią jest parametryzacja algorytmu uczenia maszynowego, która w przypadku metody gradientowej zależy od rodzaju korpusu, a ustalenie właściwej konfiguracji wartości parametrów, dla których model najszybciej osiąga jak najlepszą aproksymację rozkładu macierzy jest zadaniem czasochłonnym. W przypadku algorytmu gensim satysfakcjonujący model semantyczny otrzymano, ustalając podstawowe wymagane parametry: liczbę cech w profilu, metodę obliczania lokalnej i globalnej wagi słowa oraz minimalnej i maksymalnej liczby dokumentów, które muszą zawierać dane słowo. Poza tym ze względu na zapotrzebowanie na pamięć zdefiniowano maksymalną liczbę dokumentów przetwarzanych w kolejnych partiach. Ponadto, akceptowane są również bardziej zaawansowane parametry, które mogą zwiększać dokładność aproksymacji SVD bądź pozwalać na rozpraszanie obliczeń.
+
+Obliczanie profilów nowych dokumentów na żądanie w przypadku algorytmu gradientowego wymaga uruchomienia dla pojedynczego profilu procesu uczenia, dla którego również należy określić liczbę iteracji, która powinna być dobrana w taki sposób, aby nie doprowadzić do nadmiernego lub niedostatecznego dopasowania do istniejącego modelu. W przypadku algorytmu gensim mapowanie profilu nowego dokumentu na istniejącą przestrzeń semantyczną polega, zgodnie z własnościami SVD, na wymnożeniu zwektoryzowanej postaci tf-idf dokumentu przez macierz profili słów - gensim wykorzystuje zoptymalizowane operacje wektorowe na wektorach rzadkich zaimplementowane w bibliotekach scipy i numpy.
+
+Jeżeli chodzi o możliwości serializacji modelu, to w przypadku algorytmu gensim serializuje się go do oddzielnych plików zawierących: słownik pojęć, model SVD (zawierający macierz profili słów, macierz diagonalną oraz zastosowane wartości parametrów) oraz specyfikację modelu obliczania wag tf-idf. Dla metody gradientowej należy przechowywać dane odnośnie parametryzacji, słownik pojęć oraz zarówno macierz profili słów, jak i macierz profili dokumentów. Ze względu na konieczność składowania postaci wektorowych tekstów, strategia gradientowa ma większe zapotrzebowanie na pamięć na dysku.
+
+Korzystną cechą algorytmu gradientowego jest możliwość aktualizacji modelu semantycznego bez przeprowadzania uczenia od początku, również w przypadku, gdy zmianie ulega słownik pojęć. Należy jednak brać pod uwagę, że w przypadku dużych zmian jest konieczne przeprowadzenie wielu iteracji, aby nie doprowadzić do pogorszenia błędu aproksymacji. Pakiet gensim również pozwala na aktualizację modelu, natomiast nie wspiera rozbudowy słownika pojęć oraz operacji usuwania dokumentów. W momencie potrzeby rozważenia nowych słów lub usunięcia dokumentów model należy przebudować od nowa.
+
+Biorąc pod uwagę te argumenty, dla systemu Paperity do budowy modelu predykcyjnego zaproponowano zastosowanie podejścia z pakietu gensim. Ze względu na zmieniającą się strukturę korpusu, po osiągnięciu ustalonego progu dla liczby nowych dokumentów model będzie przeuczany dla nowego stanu zbioru, a na jego podstawie będzie przeprowadzany trening klasyfikatora z wykorzystaniem zbioru treningowego poetykietowanych dokumentów.
+
+\section{Analiza zbioru Paperity}
+
+W trakcie eksperymentów ze zbiorem Paperity dysponowano 967 858 dokumentami składowanymi w bazie danych zajmującej około 44 GB na dysku. Całkowita liczba wag niezerowych w korpusie wynosiła ok. 1 mld. Algorytm z pakietu gensim uaktualniał rozkład SVD co 20 000 dokumentów. Teksty wczytywano do pamięci partiami liczącymi 10 000 elementów. Słownik pojęć ograniczono do 300 000 słów występujących w co najwyżej 10\% dokumentach. Najrzadsze słowo występowało w 90 dokumentach.
+
+Wykres \ref{fig:ram_consumption} przedstawia wycinek obserwacji obciążenia pamięci operacyjnej w trakcie działania algorytmu. Okresy jednostajnego wzrostu zużycia to czas kiedy dokumenty były konwertowane z postaci tekstowej do postaci td-idf oraz agregowane. Właściwe uaktualnianie modelu SVD można zaobserwować w trakcie krótkich okresów wzrostu zapotrzebowania na pamięć (o ok. 2.4 GB). Pozostałe ok 4.3 GB było zajmowane głównie przez macierz profili słów, słownik pojęć oraz wczytane z bazy danych dokumenty. 
+
+\begin{figure}[]
+\centering
+  \includegraphics[width=0.8\textwidth]{ram_consumption.jpg}
+  \caption{Zużycie pamięci, algorytm gensim, zbiór Paperity}\label{fig:ram_consumption}
+\end{figure}
+
+W tabeli \ref{gensim:running_times} zestawiono czasy budowy modelu dla całego korpusu Paperity w stosunku do wybranej liczby cech w profilach. Przed przystąpienienm do właściwej konstrukcji modelu, 6 godzin 22 minuty zostało poświęconych na przygotowanie słownika pojęć. Zatem łącznie na zbudowanie całego modelu z profilami o 400 cechach dla pełnego korpusu było potrzeba 13 godzin 49 minut. Warto zauważyć, że z własności SVD wynika, że posiadając model zbudowany dla 400 cech można bez uruchamiania nowego procesu uczenia uzyskać model o dowolnej mniejszej liczbie cech, obcinając macierz profili słów o te koncepty, którym odpowiadają najmniejsze współczynniki w macierzy diagonalnej w rozkładzie.
+
+\begin{table}[]
+\centering
+\begin{tabular}{@{}llll@{}}
+\toprule
+Liczba cech & 150 & 250 & 400 \\ \midrule
+150 & 6 godz. 46 min. & 7 godz. & 7 godz. 27 min. \\ \bottomrule
+\end{tabular}
+\caption{Czas obliczania SVD, gensim, Paperity}
+\label{gensim:running_times}
+\end{table}
+
+Dla zbioru dokumentów z repozytorium Paperity nie istniał początkowy zbiór dokumentów przydzielonych do odpowiednich kategorii. Konieczne było wykorzystanie metod uczenia częściowo nadzorowanego, aby otrzymać korpus z przyporządkowanymi dziedzinami.
+
+Pierwszym etapem w częściowo nadzorowanych algorytmach uczenia maszynowego jest znalezienie pewnej próbki obserwacji ze znanymi klasami decyzyjnymi. Próbka ta jest najczęściej stosunkowo niewielka w stosunku do rozmiarów całego zbioru obserwacji, ale powinna być jak najbardziej reprezentatywna, stąd jej właściwe znalezienie wymaga dodatkowej wiedzy eksperckiej. W przypadku Paperity posłużono się tematyką czasopism naukowych, w których wybrane artykuły występowały, analizą tytułów i wspomnianych przez autorów słów kluczowych, o ile takie były wymienione. Podczas ręcznego etykietowania zbioru zachowywano odpowiednie proporcje, aby artykuły były dosyć równomiernie rozłożone po klasach decyzyjnych. Znaczne nieregularności mogą prowadzić do późniejszych zaburzeń w procesie rozszerzania poetykietowanego zbioru i nadmiernego przydzielania dokumentów do danej kategorii, pomijąc kategorie mniej liczne.
+
+Początkowy zbiór dokumentów z ręcznie przydzielonymi etykietami składał się z 1074 tekstów. Przed przystąpieniem do rozszerzania zbioru sprawdzono skuteczność klasyfikatora kNN z miarą kosinusową na przygotowanym zbiorze. Ze względu na brak wyodrębiononego zbioru treningowego i testowego wykorzystano tzw. \textit{walidację krzyżową}, w której zbiór tekstów był dzielony na 5 podzbiorów, a następnie każdy z nich był traktowany jako zbiór testowy, a wszystkie pozostałe jako zbiór treningowy. Wszystkie uzyskane wyniki były następnie uśredniane. Każdy z dokumentów mapowano na przestrzeń semantyczną wywnioskowaną na podstawie pełnego korpusu Paperity. Zaobserwowano podobną zależność jak dla modelu gradientowego, zmniejszanie liczby cech powodowało zmniejszenie skuteczności klasyfikatora. 
+
+W przypadku zbioru Paperity istotny okazał się również fakt, że dla niektórych tekstów trudno było jednoznacznie przypisać pojedynczą kategorię. Przy doborze klasy decyzyjnej podczas ręcznego etykietowania zbioru wybierano kategorię najbardziej prawdopodobną. Na macierzy błędu dostępnej w załączniku na rysunku \ref{fig:paperity_confusion_matrix} widać, że klasyfikator mylił się w właśnie głównie przy tekstach z klas decyzyjnych bardzo blisko skorelowanych Te z pozoru niepoprawne etykiety po głębszej analizie mogły być uznane również jako jedne z możliwych etykiet ze względu na ciężką do uniknięcia multidyscyplinarność niektórych tekstów. Zdecydowano, że podczas rozpropagowywania dziedzin na kolejne dokumenty, tekstom będą przydzielane co najwyżej dwie najbardziej prawdopodobne etykiety, o ile prawdopodobieństwo posiadania etykiety wyniesie co najmniej 80\%. Tabela \ref{kNN-accuracy-initial-set} pokazuje, że rozważanie dwóch najpewniejszych dziedzin dawało rozsądne wyniki dokładności klasyfikacji -- wynik klasyfikacji określano jako pozytywny jeżeli dobrana ręcznie kategoria występowała na liście dziedzin wskazanych przez klasyfikator. Przykładowe najczęściej występujące wspólnie kategorie to: teologia i filozofia, architektura i sztuka, fizyka i astronomia, archeologia i antropologia. 
+
+% Please add the following required packages to your document preamble:
+% \usepackage{booktabs}
+\begin{table}[]
+\centering
+\begin{tabular}{@{}lll@{}}
+\toprule
+Liczba cech & 2 najpewniejsze dziedziny & 1 najpewniejsza dziedzina \\ \midrule
+400         & 0.862                  & 0.769                 \\
+300         & 0.854                  & 0.754                 \\
+200         & 0.843                  & 0.741                 \\
+100         & 0.803                  & 0.699                 \\
+50          & 0.780                  & 0.653                 \\
+20          & 0.683                  & 0.594                 \\ \bottomrule
+\end{tabular}
+\caption{Dokładność klasyfikatora kNN, miara kosinusowa, Paperity}
+\label{kNN-accuracy-initial-set}
+\end{table}
+
+\section{Rozszerzanie zbioru poetykietowanego}
+Do rozszerzenia początkowego zbioru poetykietowanych dokumentów wykorzystano tzw. technikę ,,self-training'', która bazuje na założeniu, że decyzje klasyfikatora podjęte z największą pewnością są poprawne.
+
+W ogólności schemat uczenia z zastosowaniem tej techniki wygląda w następujący sposób:
+
+\begin{enumerate}
+    \item Wyucz klasyfikator $f$ na podstawie $(X_{poetykietowany}, Y_{poetykietowany})$.
+    \item Zaklasyfikuj każdy $x \in X_{niepoetykietowany}$.
+    \item Dodaj najbardziej pewne wybory $(x, f(x))$ do zbioru danych poetykietowanych.
+    \item Wróć do kroku pierwszego.
+\end{enumerate}
+
+Największą zaletą tego podejścia jest jego prostota. Może być zastosowane do każdego klasyfikatora umożliwiającego określanie prawdopodobieństwa predykcji. Główną wadą jest fakt, że wczesne błędy w predykcji mogą się nawarstwiać w kolejnych iteracjach, dlatego warto wybierać jak najbardziej pewne wybory w każdym cyklu uczenia.
+
+W pakiecie scikit-learn przykładem klasyfikatora istnieje kilka klasyfikatorów dostarczających funkcję zwracającą prawdopodobieństwo przynależności do danej klasy, np. kNN, Random Forest czy klasyfikator gradientowo aproksymujący regresję logistyczną ($SGDClassifier$). Ostatecznie użyto klasyfikatora SGDClassifier ze strategią ,,jeden przeciw pozostałym'', który dobrze skalował się wraz z przyrastającą liczbą dokumentów w zbiorze poetykietowanym oraz uzyskiwał dobre wyniki klasyfikacji dla zbioru początkowego. 
+
+Rozszerzanie zbioru przebiegało według poniższych kroków:
+
+\begin{enumerate}
+    \item Zbuduj model semantyczny dla całego korpusu Paperity.
+    \item Zbuduj klasyfikator, bazując na aktualnym zbiorze poetykietowanych dokumentów.
+    \item Przeprowadź mapowanie na przestrzeń semantyczną wszystkich dokumentów o nieprzydzielonych etykietach.
+    \item Zaklasyfikuj każdy niepoetykietowany dokument, przydzielając mu co najwyżej dwie najbardziej prawdopodobne dziedziny. Minimalne prawdopodobieństwo przynależności do dziedziny: 80\%.
+    \item Pogrupuj dokumenty ze względu na przydzielone kategorie. Włącz do zbioru poetykietowanego 5\% dokumentów o najmniejszych średnich odległościach do wszystkich dokumentów o tej samej dziedzinie w poprzednim zbiorze poetykietowanym. Odległość między dokumentami mierzono porównując ich profile za pomocą miary kosinusowej.
+    \item Wróć do kroku drugiego.
+    \item Warunek stopu: Otrzymanie dostatecznie dużego korpusu poetykietowanych artykułów.
+\end{enumerate}
+
+Cały proces uczenia oparty był na tym samym modelu semantycznym wygenerowanym dla wszystkich dokumentów Paperity. Użycie pełnego korpusu pozwoliło na wydobycie pełnej dostępnej informacji o właściwościach semantycznych słów wśród wszystkich kontekstów w zbiorze Paperity. Dla małych zestawów danych, takich jak początkowy zbiór poetykietowanych dokumentów, istniałaby możliwość pominięcia właściwych słów wyróżniających daną kategorię, ponieważ mogłyby one nawet nie wystąpić w początko wybranym zbiorze.
+
+Rozszerzanie zbioru kontynuowano do momentu kiedy sprawdzian walidacji krzyżowej nie wykazywał znacznej poprawy klasyfikacji między kolejnymi iteracjami. Ostatecznie w zbiorze znalazło się 21 718 tekstów, a uzyskane wyniki klasyfikacji wyglądały następująco: precyzja 0.894,	czułość: 0.954, miara F1: 0.923. Strukturę zbioru przedstawiono w załączniku na wykresie \ref{fig:paperity_structure_labeled}.
+
+Otrzymany zestaw poetykietowanych tekstów został przygotowany z zamiarem jego późniejszego wykorzystania do przydzielenia etykiet wszystkich pozostałym tekstom w bazie Paperity oraz klasyfikacji nowych tekstów w systemie.
+
+\section{Problem wielojęzyczności}
+Podczas kalkulacji modelu semantycznego dla dokumentów Paperity szybko okazało się, że istnieje pewna część tekstów w językach innych niż angielski, przede wszystkim w języku niemieckim, holederskim i francuskim. Przed rozpoczęciem budowy modelu usunięto słowa nieistotne jedynie ze stop-listy dla języka angielskiego. Do tego celu wykorzystano anglojęzyczną część korpusu StopWords dostępnego w pakiecie nltk. Korpus ten zawiera 2400 najczęściej występujących słów dla 11 języków. Poniższe zestawienie dla zbioru ok. 180 000 dokumentów przedstawia listę czterech wykrytych konceptów o największej sile wyrazu. Dla każdego konceptu wylistowano najważniejsze dla niego słowa uszeregowane wg współczynnika ważności. Zaobserwowane koncepty pokazują jak ważne jest odfiltrowanie z dokumentów słów ze stop-listy. Większość z wymienionych słów zostałaby wyeliminowana w procesie usuwania wyrazów nieistotnych, ich pozostawienie może zaburzyć właściwe rozpoznanie ukrytych konceptów. W tym przypadku pozwoliły jednak na wykrycie problemu wielojęzyczności w korpusie.
+\\
+
+topic \#0(51.032): 0.453 * 'und' + 0.406 * 'die' + 0.395 * 'der' + 0.157 * 'zu' + 0.143 * 'mit' + 0.138 * 'eine' + 0.136 * 'von' + 0.130 * 'ist' + 0.125 * 'des' + 0.125 * 'het'
+
+topic \#1(46.728): 0.369 * 'het' + 0.326 * 'een' + 0.257 * 'de' + 0.229 * 'en' + 0.190 * 'van' + -0.172 * 'und' + 0.154 * 'dat' + 0.145 * 'voor' + -0.143 * 'der' + 0.140 * 'patients'
+
+topic \#2(45.496): -0.252 * 'het' + 0.246 * 'patients' + -0.222 * 'een' + 0.176 * 'icu' + -0.137 * 'en' + -0.125 * 'de' + -0.113 * 'van' + 0.109 * 'cells' + -0.105 * 'dat' + -0.099 * 'voor'
+
+topic \#3(34.429): -0.411 * 'les' + -0.328 * 'la' + -0.282 * 'des' + -0.235 * 'de' + -0.222 * 'une' + -0.212 * 'dans' + -0.206 * 'que' + -0.198 * 'le' + -0.174 * 'est' + -0.167 * 'un'
+\\
+
+Ponieważ celem zadania było przydzielenie etykiet jedynie dokumentom anglojęzycznym, należało wyeliminować pozostałe teksty. Posłużono się biblioteką \textit{langdetect}\footnote{https://pypi.python.org/pypi/langdetect}, która pozwala na wykrycie języków występujących w danym tekście oraz przekazuje informację o prawdopodobieństwie ich predykcji.
+
+\chapter{Podsumowanie}
+
+W tej pracy przedstawiono analizy, których dokonywano, poszukując właściwej metody do przeprowadzania klasyfikacji tesktów w korpusach, których rozmiary nie pozwalają na ich przechowywanie w pamięci. Skupiono się na dwóch metodach ekstrakcji cech.
+
+Przedstawiono jak metoda gradientowa zastosowana w kontekście systemów rekomendacyjnych może zostać wykorzystana do zadania ukrytego indeksowania semantycznego. Opisano możliwe do zastosowania dla niej metody parametryzacji oraz zaprezentowano sposoby ich ewaluacji, rozważając dwa popularne korpusy dokumentów.
+
+Eksperymenty przeprowadzone dla metody gradientowej wykazały, że otrzymywany za jej pomocą model semantyczny prowadził do otrzymywania porównywalnych wyników w stosunku do metody dostępnej pakiecie gensim. Wskazano jednak istotne przewagi drugiego algorytmu takie jak o wiele szybszy czas działania bądź brak konieczności wielokrotnego iterowania po korpusie dokumentów. W przypadku rozważania użycia algorytmu gradientowego należy zwrócić uwagę na czasochłonność procesu dobierania właściwych wartości parametrów, dla których algorytm zbiegałby do najlepszej możliwej aproksymacji. 
+
+Na podstawie doświadczeń z obiema metodami, do zadania klasyfikacji dokumentów Paperity wykorzystano algorytm gensim. Przedstawiono technikę uczenia częściowo nadzorowanego, dzięki której otrzymano zbiór dokumentów poetykietowanych z największą pewnością. Osiągnięte wyniki mogą zostać jeszcze poprawione podczas dalszych prac. Bliższe analizy wykazały, że niektóre znalezione teksty niekoniecznie najlepiej odzierciedlały przypisane do nich kategorie. Dotyczyło to trzech klas decyzyjnych. Można rozważyć utworzenie lepszego początkowego zbioru dokumentów, od którego rozpoczyna się proces stopniowego rozszerzania, zwiększając liczbę tekstów dla tych klas, bądź znajdując dokumenty bardziej reprezentatywne.
+
+Jako kontynuację działań podjętych w trakcie tworzenia tej pracy planuje się wdrożenie wybranego algorytmu w systemie Paperity.
+
+\appendix
+\chapter{Zawartość załączonej płyty CD}
+
+\begin{itemize}
+    \item SGDSemanticModel - program gradientowo aproksymujący model semantyczny
+    \item GensimSemanticModel - program wykorzystujący bibliotekę gensim do budowy modelu semantycznego
+    \item SemanticModelTester - zbiór skryptów do ewaluacji działania modelu
+    \item TrainingSetExpansion - skrypty służące do rozszerzania poetykietowanego zbioru dokumentów oraz ewaluacji procesu
+\end{itemize}
+
+\chapter{Struktura korpusu 20newsgroups i Reuters}
+
+\begin{table}[H]
+\centering
+\begin{tabular}{|l|l|}
+\hline
+\begin{tabular}[c]{@{}l@{}}comp.graphics (584/389)\\ comp.os.mswindows.misc (591/394)\\ comp.sys.ibm.pc.hardware (590/392)\\ comp.sys.mac.hardware (578/385)\\ comp.windows.x (593/395)\end{tabular} & \begin{tabular}[c]{@{}l@{}}rec.autos (594/396)\\ rec.motorcycles (598/398)\\ rec.sport.baseball (597/397)\\ rec.sport.hockey (600/399)\end{tabular} \\ \hline
+\begin{tabular}[c]{@{}l@{}}sci.crypt (595/396)\\ sci.electronics (591/393)\\ sci.med (594/396)\\ sci.space (593/394)\end{tabular} & \begin{tabular}[c]{@{}l@{}}talk.religion.misc (465/310)\\ alt.atheism (480/319)\\ soc.religion.christian (599/398)\end{tabular} \\ \hline
+misc.forsale (585/390) & \begin{tabular}[c]{@{}l@{}}talk.politics.misc (465/310)\\ talk.politics.guns (546/364)\\ talk.politics.mideast (564/376)\end{tabular} \\ \hline
+\end{tabular}
+\caption{Struktura zbioru 20newsgroups (zbiór treningowy/zbiór testowy)}
+\label{appendix:20newsgroups-structure}
+\end{table}
+
+\begin{table}[H]
+\centering
+\begin{tabular}{|l|l|l|l|l|l|l|l|l|l|l|l|l|}
+\hline
+Liczba kategorii & 1 & 2 & 3 & 4 & 5 & 6 & 7 & 8 & 9 & 10 & 11 & 15 \\ \hline
+Liczba dokumentów & 6577 & 865 & 192 & 59 & 37 & 22 & 5 & 5 & 3 & 2 & 1 & 1 \\ \hline
+\end{tabular}
+\caption{Przydział dokumentów do kategorii dla zbioru treningowego Reuters}
+\label{reuters-train}
+\end{table}
+
+\begin{table}[H]
+\centering
+\begin{tabular}{|l|l|l|l|l|l|l|l|l|l|l|l|l|l|}
+\hline
+Liczba kategorii & 1 & 2 & 3 & 4 & 5 & 6 & 7 & 8 & 9 & 10 & 11 & 12 & 14 \\ \hline
+Liczba dokumentów & 2583 & 308 & 63 & 32 & 15 & 5 & 4 & 2 & 2 & 1 & 1 & 1 & 2 \\ \hline
+\end{tabular}
+\caption{Przydział dokumentów do kategorii dla zbioru testowego Reuters}
+\label{reuters-test}
+\end{table}
+
+\begin{table}[]
+\centering
+\begin{tabular}{|l|l|l|}
+\hline
+\begin{tabular}[c]{@{}l@{}}acq 1650/719\\ alum 35/23\\ barley 37/14\\ bop 75/30\\ carcass 50/18\\ castor-oil 1/1\\ cocoa 55/18\\ coconut 4/2\\ coconut-oil 4/3\\ coffee 111/28\\ copper 47/18\\ copra-cake 2/1\\ corn 181/56\\ cotton 39 20\end{tabular} & \begin{tabular}[c]{@{}l@{}}hog 16/6\\ housing 16/4\\ income 9/7\\ instal-debt 5/1\\ interest 347/131\\ ipi 41/12\\ iron-steel 40/14\\ jet 4/1\\ jobs 46/21\\ l-cattle 6/2\\ lead 15/14\\ lei 12/3\\ lin-oil 1/1\\ livestock 75/24\\ lumber 10 6\\ meal-feed 30/19\\ money-fx 538/179\\ money-supply 140/34\end{tabular} & \begin{tabular}[c]{@{}l@{}}cotton-oil 1/2\\ cpi 69/28\\ cpu 3/1\\ crude 389/189\\ dfl 2/1\\ dlr 131/44\\ dmk 10/4\\ earn 2877/1087\\ fuel 13/10\\ gas 37/17\\ gnp 101/35\\ gold 94/30\\ grain 433/149\\ groundnut 5/4\\ groundnut-oil 1/1\\ heat 14/5\end{tabular} \\ \hline
+ & \begin{tabular}[c]{@{}l@{}}rye 1/1\\ ship 197/89\\ silver 21/8\\ sorghum 24/10\\ soy-meal 13/13\\ soy-oil 14/11\\ soybean 78/33\\ strategic-metal 16/11\\ sugar 126/36\\ sun-meal 1/1\\ sun-oil 5/2\\ sunseed 11/5\\ tea 9/4\\ tin 18/12\\ trade 368/117\\ veg-oil 87/37\\ wheat 212/71\\ wpi 19/10\\ yen 45/14\\ zinc 21/13\end{tabular} & \begin{tabular}[c]{@{}l@{}}naphtha 2/4\\ nat-gas 75/30\\ nickel 8/1\\ nkr 1/2\\ nzdlr 2/2\\ oat 8/6\\ oilseed 124/47\\ orange 16/11\\ palladium 2/1\\ palm-oil 30/10\\ palmkernel 2/1\\ pet-chem 20/12\\ platinum 5/7\\ potato 3/3\\ propane 3/3\\ rand 2/1\\ rape-oil /3\\ rapeseed 18/9\\ reserves 55/18\\ retail 23/2\\ rice 35/24\\ rubber 37/12\end{tabular} \\ \hline
+\end{tabular}
+\caption{Struktura zbioru Reuters (zbiór treningowy/zbiór testowy)}
+\label{appendix:reuters-structure}
+\end{table}
+
+\chapter{Statystyki zbioru poetykietowanych ręcznie dokumentów z bazy Paperity}
+\label{paperity-train-initial}
+
+% Please add the following required packages to your document preamble:
+% \usepackage{booktabs}
+\begin{table}[H]
+\centering
+\label{my-label}
+\begin{tabular}{@{}llll@{}}
+\toprule
+agri            & 21 & geology         & 15 \\
+anthro          & 16 & hist            & 19 \\
+archaeo         & 17 & law             & 20 \\
+archi           & 15 & lib sci         & 21 \\
+arts            & 19 & ling            & 25 \\
+astron\&astroph & 34 & lit             & 16 \\
+biochemistry    & 15 & management      & 13 \\
+biotech         & 28 & materials sci   & 14 \\
+botany          & 24 & math            & 30 \\
+cell bio        & 23 & medicine        & 35 \\
+chemistry       & 21 & molecular bio   & 21 \\
+climatology     & 18 & neurobio        & 20 \\
+comp            & 38 & neurology       & 25 \\
+cosmo           & 15 & neurosci        & 18 \\
+ecology         & 21 & paleo\&paleobio & 29 \\
+econometrics    & 24 & pharm           & 27 \\
+economy         & 35 & phil            & 21 \\
+education       & 17 & phys            & 30 \\
+engin           & 26 & psycho          & 21 \\
+env sciences    & 20 & socio           & 24 \\
+finance         & 23 & theo            & 16 \\
+genetics        & 21 & trade           & 21 \\
+genomics        & 25 & veterinary med  & 20 \\
+geodesy         & 23 & zoology         & 22 \\
+geography       & 17 &                 &    \\ \bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[]
+\centering
+  \includegraphics[width=1.3\textwidth]{conf_matrix.png}
+  \caption{Macierz pomyłek dla ręcznie poetykietowanego zbioru początkowego dokumentów Paperity}\label{fig:paperity_confusion_matrix}
+\end{figure}
+
+\begin{figure}[]
+\centering
+  \includegraphics[width=1.0\textwidth]{paperity_category_distr.png}
+  \caption{Struktura poetykietowanego zbioru Paperity}\label{fig:paperity_structure_labeled}
+\end{figure}
+
+\begin{thebibliography}{99}
+\addcontentsline{toc}{chapter}{Bibliografia}
+
+\bibitem[1]{takacs} Gabor Takacs, Istvan Pilaszy, Bottyan Nemeth, Domonkos Tikk \textit{Scalable Collaborative Filtering Approaches for Large Recommender Systems}, Journal of Machine Learning Research, 10, 623-656, 2009.
+
+\bibitem[2]{funk} Simon Funk, \textit{Netflix Update: Try This at Home},\\ \url{http://sifter.org/\textasciitilde simon/journal/20061211.html}, 2006
+
+\bibitem[3]{landauer} Thomas K. Landauer, Peter W. Foltz, Darrell Laham, \textit{An Introduction to Latent Semantic Analysis}, Discourse Processes, 25, 259-284, 1998.
+
+\bibitem[4]{sarwar} Badrul Sarwar, George Karypis, Joseph Konstan, John Riedl \textit{Incremental Singular Value Decomposition Algorithms for Highly
+Scalable Recommender Systems}, 2002.
+
+\bibitem[5]{dalal} Mita K. Dalal, Mukesh A. Zaveri, \textit{Automatic Text Classification: A Technical Review}, International Journal of Computer Applications (0975 -- 8887), 28 (2), 37--40, 2011.
+
+\bibitem[6]{rehurek} Radim Rehurek, \textit{Scalability of Semantic Analysis in Natural Language Processing}, 2011.
+
+\bibitem[7]{polettini} Nicola Polettini, \textit{The Vector Space Model in Information Retrieval -- Term Weighting Problem}, 2004.
+
+\bibitem[8]{nltkclf} Steven Bird, Ewan Klein, Edward Loper \textit{Natural Language Processing with Python}, 2014.
+
+\bibitem[9]{rendle} Steffen Rendle, Lars Schmidt-Thieme, \textit{Online-Updating Regularized Kernel Matrix Factorization Models for Large-Scale Recommender Systems}, Proceedings of the 2008 ACM conference on Recommender systems, 251--258, 2008.
+
+\bibitem[10]{landauer2} Thomas K. Landauer, Susan T. Dumais, \textit{A Solution to Plato's Problem: The Latent Semantic Analysis Theory of Acquisition, Induction, and Representation of Knowledge}, Psychological Review, 1 (2), 211--240, 1997.
+
+\bibitem[11]{bottou} Leon Bottou, \textit{Stochastic gradient descent tricks}, Neural Networks, Tricks of the Trade,
+volume 7700 of Lecture Notes in Computer Science, 430 -– 445, Springer, 2012.
+
+\bibitem[12]{sparck} Karen Sparck Jones, \textit{A statistical interpretation of term specificity and its application in retrieval}, Journalof Documentation, Vol. 28, 11–-21, 1972
+
+\bibitem[13]{gemulla} Rainer Gemulla, Peter J. Haas, Erik Nijkamp, Yannis Sismanis, \textit{Large-Scale Matrix Factorization with Distributed Stochastic Gradient Descent}, 2011.
+
+\end{thebibliography}
+
+\end{document}
+
+
+%%% Local Variables:
+%%% mode: latex
+%%% TeX-master: t
+%%% coding: latin-2
+%%% End:
