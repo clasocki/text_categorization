@@ -18,7 +18,7 @@ from sklearn.datasets import fetch_20newsgroups
 import random
 from nltk.corpus import stopwords
 import re
-
+import gc
 
 #numpy.seterr(all='warn')
 #warnings.filterwarnings('error')
@@ -62,9 +62,9 @@ class DocumentIterator(object):
 
         db_row_count = db.select("SELECT COUNT(1) FROM pap_papers_view WHERE " + self.doc_filter)[0]['COUNT(1)']
 
-        remaining_batch_size = self.DB_WINDOW_SIZE - db_row_count + self.current_record_offset
+        remaining_batch_size = self.DB_WINDOW_SIZE - db_row_count + self.current_record_offset if db_row_count > self.DB_WINDOW_SIZE else 0
         
-        if db_row_count > 0:
+        if db_row_count > 0 and db_row_count > self.DB_WINDOW_SIZE:
             self.current_record_offset = (self.current_record_offset + self.DB_WINDOW_SIZE) % db_row_count
 
         if remaining_batch_size > 0:
@@ -77,7 +77,7 @@ class DocumentIterator(object):
         query += ") LIMITED " + \
             "ORDER BY RAND() " + \
             "LIMIT " + str(self.DOCUMENT_BATCH_SIZE)
-
+        print query
         #query = "SELECT * FROM pap_papers_view WHERE published = 1 AND is_test = 1"
         #print query
         #document_batch = db.select(query)
@@ -87,19 +87,26 @@ class DocumentIterator(object):
         
         return document_batch
 
-    def getAllInBatches(self):
+    def getAllInBatches(self, convert=None):
         db_row_count = db.select("SELECT COUNT(1) FROM pap_papers_view WHERE " + self.doc_filter)[0]['COUNT(1)']
         
         while self.current_record_offset < db_row_count:
             print self.current_record_offset
-            
-            query = "SELECT * " + \
-                "FROM pap_papers_view WHERE " + self.doc_filter + " " + \
-                "LIMIT " + str(self.DB_WINDOW_SIZE) + " OFFSET " + str(self.current_record_offset)
 
+            query = "select p.* " + \
+                    "from (select id from pap_papers_view where " + self.doc_filter + " " \
+                    " order by id limit " + str(self.DB_WINDOW_SIZE) + " OFFSET " + str(self.current_record_offset) + \
+                    ") q join pap_papers_view p on p.id = q.id"; 
+            
             document_batch = Paper.selectRaw(query)
 
-            yield self.processDocuments(document_batch)
+            for doc in document_batch:
+                yield doc
+                del doc
+            #yield self.processDocuments(document_batch, convert)
+
+            del document_batch
+            gc.collect()
 
             self.current_record_offset += self.DB_WINDOW_SIZE
 
@@ -138,8 +145,8 @@ class DocumentIterator(object):
             document_profile = document.profile
             str_document_profile = ','.join(str(profile_element) for profile_element in document_profile)
 
-            #sql_update = "UPDATE pap_papers_3 SET profile = '" + \
-            sql_update = "UPDATE pap_papers_view SET profile = '" + \
+            #sql_update = "UPDATE pap_papers_view SET profile = '" + \
+            sql_update = "UPDATE pap_papers_3 SET profile = '" + \
                 str_document_profile + \
                 "' WHERE id = " + str(db_document_id)
 
@@ -148,12 +155,11 @@ class DocumentIterator(object):
 
         db.commit()
 
-    #@profile
-    #@numba.jit(cache=True)
     def processDocuments(self, documents, convert):
         processed_docs = []            
 
         for document in documents:
+            if document.rawtext is None: continue
             document.tokenized_text = tokenize(document.rawtext).split()
             document.profile = numpy.asarray(document.profile)
             document.word_weights = convert(document.id, document.tokenized_text) if convert else None
@@ -163,7 +169,6 @@ class DocumentIterator(object):
      
         return processed_docs
 
-    #@profile
     def batchIter(self, convert=None):
         while True:
             document_batch = self.getRandomDocumentsFromDb()
@@ -237,7 +242,7 @@ class InMemoryDocumentIterator(object):
 
 #class CalculationHelper(object):
 #@numba.jit("float32(float32[:],float32[:,:], int32)", nopython=True,cache=True)
-@numba.jit(nopython=True,cache=True)
+@numba.jit(nopython=True, cache=True)
 def predictValue(profile, word_profiles, word_id):
     return numpy.dot(profile, word_profiles[word_id, :])
 
@@ -481,9 +486,10 @@ class SemanticModel(object):
             for word_id in document.word_weights.keys():
                 positive_weights.append((document.id, word_id))
 
-        positive_sample_size = numpy.floor(0.2 * len(positive_weights))
-        zero_sample_size = numpy.floor(self.neg_weights * positive_sample_size)
-
+        positive_sample_size = int(numpy.floor(0.2 * len(positive_weights)))
+        zero_sample_size = int(numpy.floor(self.neg_weights * positive_sample_size))
+       
+        print len(positive_weights), positive_sample_size
         positive_sample = numpy.random.choice(len(positive_weights), positive_sample_size, replace=False)
         zero_sample = numpy.random.choice(total_training_set_size, zero_sample_size, replace=False)
 
@@ -762,8 +768,6 @@ class SemanticModel(object):
 
         return word_weights
     
-    #@profile
-    #@numba.jit(cache=True)
     def calculateRandomizedWordWeights(self, words, word_filter=lambda w_id: True, zero_weights=None):
         #validation_set_words = self.validation_set[document_id] if self.validation_set and document_id else set()
         #word_filter = (lambda w_id: w_id not in validation_set_words) if validation_set_words else (lambda w_id: True)
@@ -790,7 +794,6 @@ class SemanticModel(object):
 
         return documents
 
-    #@numba.jit(cache=True)
     def randomizeWordWeights(self, word_weights, word_filter, zero_weights=None):
         """
         :param document: document represented as a map: token_id -> token_weight where token_id exists in the document

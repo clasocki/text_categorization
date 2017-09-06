@@ -12,7 +12,7 @@ from collections import Counter
 import gensim_tests
 from sklearn.metrics import confusion_matrix, accuracy_score
 import itertools
-import matplotlib.pyplot as plt
+#import matplotlib.pyplot as plt
 from semantic_model import SemanticModel, InMemoryDocumentIterator, DocumentIterator, tokenize
 import datetime
 from sklearn.ensemble import RandomForestClassifier
@@ -27,10 +27,10 @@ import pandas as pd
 from optparse import OptionParser
 from multiprocessing import Process
 
-rootdir = '/home/clasocki/20news-bydate/'
-rootdir_test = rootdir + '20news-bydate-test'
-rootdir_train = rootdir + '20news-bydate-train'
-
+#rootdir = '/home/clasocki/20news-bydate/'
+#rootdir_test = rootdir + '20news-bydate-test'
+#rootdir_train = rootdir + '20news-bydate-train'
+rootdir = '/home/clasocki/paperity_full'
 def insert_all(db, rootdir, is_test):
 	cursor = db.cursor()
 
@@ -46,7 +46,6 @@ def insert_all(db, rootdir, is_test):
 			for f in files:
 				path = os.path.join(subdir, f)
 				category = path.split('/')[-2]
-
 				print str(current_document) + " / " + str(all_documents)
 				current_document += 1
 
@@ -65,8 +64,8 @@ def insert_all(db, rootdir, is_test):
 						rawtext = rawtext.replace("'", "''")
 						print rawtext[:20]
 						query = "INSERT INTO pap_papers_view(rawtext, category, is_test, file_name) VALUES('" + \
-							rawtext + "', '" + category + "', " + str(is_test) + ", " + str(f) + ")"
-
+							rawtext + "', '" + category + "', " + str(is_test) + ", '" + str(f) + "')"
+                                                print query
 						cursor.execute(query)
 						db.commit()
 				except:
@@ -180,14 +179,11 @@ def shuffle_set(data_set, target_set):
 def normalize_confusion_matrix(cm):
 	return cm.astype('float') / cm.sum(axis=1)[:, numpy.newaxis]
 
+"""
 def plot_confusion_matrix(cm, classes,
                           normalize=False,
                           title='Confusion matrix',
                           cmap=plt.cm.Blues):
-    """
-    This function prints and plots the confusion matrix.
-    Normalization can be applied by setting `normalize=True`.
-    """
     plt.imshow(cm, interpolation='nearest', cmap=cmap)
     plt.title(title)
     plt.colorbar()
@@ -212,7 +208,7 @@ def plot_confusion_matrix(cm, classes,
     plt.tight_layout()
     plt.ylabel('True label')
     plt.xlabel('Predicted label')
-
+"""
 def classify(train_set, train_labels, test_set):
 	rfClf = RandomForestClassifier(n_estimators=100)
 	nghClf = KNeighborsClassifier(n_neighbors=10)
@@ -312,18 +308,26 @@ def testAccuracyIter(snapshot_file='semantic_model.snapshot', word_profiles_in_d
         multilabel=False, semantic_model=None):
     
     start_time = time.time()
-    X_train = None
+    X_train = []
     if not semantic_model:
         print "Hej"
         semantic_model = SemanticModel.load(snapshot_file, document_iterator=None, word_profiles_in_db=word_profiles_in_db)
         X_train = numpy.asarray([semantic_model.inferProfile(x, num_iters=num_iters, learning_rate=learning_rate, 
             regularization_factor=regularization_factor, decay=decay) for x in train_docs])
     else:
-        X_train = numpy.asarray([x.profile for x in semantic_model.document_iterator.docs.values()])
+        initialize_y_train = y_train is None or not any(y_train)
+        if initialize_y_train:
+            y_train = []
+        for x in semantic_model.document_iterator.getAll():
+            X_train.append(x.profile)
+            if initialize_y_train:
+                y_train.append(x.learned_category[0])
+
+        #X_train = numpy.asarray([x.profile for x in semantic_model.document_iterator.getAll()]) #.docs.values()])
     X_test = numpy.asarray([semantic_model.inferProfile(x, num_iters=num_iters, learning_rate=learning_rate, 
         regularization_factor=regularization_factor, decay=decay, zero_weights=zero_weights) for x in test_docs])
     print "Extracting profiles, ",  time.time() - start_time
-    clf_names, score, train_time, test_time = testClassifiers(X_train=X_train, y_train=y_train, X_test=X_test, y_test=y_test, multilabel=multilabel)
+    clf_names, score, pred = testClassifiers(X_train=X_train, y_train=y_train, X_test=X_test, y_test=y_test, multilabel=multilabel)
     print "Testing classifiers, ",  time.time() - start_time
 
     print score
@@ -335,8 +339,8 @@ def testAccuracyIter(snapshot_file='semantic_model.snapshot', word_profiles_in_d
             precision[clf_name][current_iter] = score[i]['precision']
             recall[clf_name][current_iter] = score[i]['recall']
 
-        train_times[clf_name][current_iter] = train_time[i]
-        test_times[clf_name][current_iter] = test_time[i]
+        #train_times[clf_name][current_iter] = train_time[i]
+        #test_times[clf_name][current_iter] = test_time[i]
 
     rmses['rmse - zbior treningowy'][current_iter] = train_rmse
     rmses['rmse - zbior walidacyjny'][current_iter] = val_rmse
@@ -347,15 +351,24 @@ def runTraining(experiment_dir, num_features, learning_rate, regularization_fact
           word_prof_low, word_prof_high, decay, min_df, max_df, term_freq_weight, num_iter, test_set_num_iters, test_zero_weights):
     start_time = time.time()
 
-    #train_docs, test_docs, y_train, y_test, multilabel = newsgroupsSet()
-    train_docs, test_docs, y_train, y_test, multilabel = reutersSet()
+    train_docs, test_docs, y_train, y_test, multilabel = newsgroupsSet()
+    #train_docs, test_docs, y_train, y_test, multilabel = reutersSet()
 
     training_set_iterator = InMemoryDocumentIterator(data_set=train_docs)
     #db = MySQLdb.connect(host='127.0.0.1', user='root',
     #                     passwd='1qaz@WSX', db='test')
-    #training_set_iterator = DocumentIterator(doc_filter="published = 1 and learned_category is not null", 
-    #                                     document_batch_size=5000, db_window_size=5000)
-    
+    """
+    training_set_iterator = DocumentIterator(doc_filter="published = 1 and learned_category is not null", 
+                                             document_batch_size=5000, db_window_size=5000)
+    multilabel = False 
+    train_docs, y_train = None, None
+    validation_documents = DocumentIterator(doc_filter="published = 0 and is_test = 1").getAll()
+    test_docs, y_test = [], []
+
+    for doc in validation_documents:
+        test_docs.append(doc.rawtext)
+        y_test.append(doc.learned_category[0])
+    """
     save_to_db = False
     rmses, precision, recall, train_times, test_times = [defaultdict(dict) for x in xrange(5)]
     scores = defaultdict(dict)
@@ -364,10 +377,14 @@ def runTraining(experiment_dir, num_features, learning_rate, regularization_fact
     model_snapshot_filename = experiment_dir + '/semantic_model.snapshot'
     
     semantic_model = None
-    tester = lambda current_iter, train_rmse, val_rmse, positive_val_rmse: testAccuracyIter(model_snapshot_filename, save_to_db, train_rmse, val_rmse, current_iter, 
-            rmses, train_times, test_times, precision=precision, recall=recall, scores=scores, positive_val_rmse=positive_val_rmse, train_docs=train_docs, test_docs=test_docs,
-            y_train=y_train, y_test=y_test, multilabel=multilabel, semantic_model=semantic_model, learning_rate=learning_rate, regularization_factor=regularization_factor, 
-            decay=decay, num_iters=test_set_num_iters, zero_weights=test_zero_weights)
+    #tester = None
+    
+    tester = lambda current_iter, train_rmse, val_rmse, positive_val_rmse: testAccuracyIter(model_snapshot_filename, save_to_db, train_rmse, val_rmse, 
+            current_iter, rmses, train_times, test_times, precision=precision, recall=recall, 
+            scores=scores, positive_val_rmse=positive_val_rmse, train_docs=train_docs, test_docs=test_docs, 
+            y_train=y_train, y_test=y_test, multilabel=multilabel, semantic_model=semantic_model, 
+            learning_rate=learning_rate, regularization_factor=regularization_factor, decay=decay, num_iters=test_set_num_iters, zero_weights=zero_weights)
+    
     semantic_model = SemanticModel(document_iterator=training_set_iterator, num_features=num_features, file_name=model_snapshot_filename, 
                                    learning_rate=learning_rate, regularization_factor=regularization_factor,
                                    neg_weights=zero_weights, doc_prof_low=doc_prof_low, doc_prof_high=doc_prof_high, 
@@ -406,41 +423,45 @@ def runMultipleTests():
           
                                    min_df=opts.min_df, max_df=opts.max_df, term_freq_weight=opts.term_freq_weight, num_iter=opts.num_iter)
     """
-    num_features = [300]
-    learning_rates = [0.001]
-    regularization_factors = [0.01, 0.2]
-    zero_weights = [3.0,]
+    num_features = [1000]
+    learning_rates = [0.0025, ]
+    regularization_factors = [0.2]
+    zero_weights = [3.0]
     doc_prof_lows = [-0.01,]
     doc_prof_highs = [0.01,]
     word_prof_lows = [-0.01,]
-    word_prof_highs = [-0.01,]
+    word_prof_highs = [0.01,]
     decays = [2.0]
-    min_dfs = [0.001, 5]
+    min_dfs = [0.001,]
     max_dfs = [0.33,]
     term_freq_weights = ['log_normalization', ]
     num_iters = [80,]
-    test_set_num_iters = [40]
-    test_set_zero_weights = [0.0, 3.0,]
+    test_set_num_iters = [30]
+    test_set_zero_weights = [3.0,]
     params = [num_features, learning_rates, regularization_factors, zero_weights, doc_prof_lows, doc_prof_highs, 
               word_prof_lows, word_prof_highs, decays, min_dfs, max_dfs, term_freq_weights, num_iters, test_set_num_iters, test_set_zero_weights]
     combinations = list(itertools.product(*params))
     
-    i_start = 282
+    i_start = 285
     ps = []
     for i, args in enumerate(combinations):
-        descr = str(i + i_start) + "__reuters_propValSet_test_zero_w_randEveryIter_"
-        descr += "num_f=%s-learn_r=%s-regul_f=%s-zero_w=%s-doc_low=%s-doc_high=%s-word_low=%s-word_high=%s-decay=%s-min_df=%s-max_df=%s,term_w=%s-iter=%s-test_iter=%s-test_zero_w=%s" % args
-        experiment_dir = 'experiments/' + descr
-        if not os.path.exists(experiment_dir):
-            os.makedirs(experiment_dir)
+        #try:
+
+            descr = str(i + i_start) + "__paperity_alotoffeatures_"
+            descr += "num_f=%s-learn_r=%s-regul_f=%s-zero_w=%s-doc_low=%s-doc_high=%s-word_low=%s-word_high=%s-decay=%s-min_df=%s-max_df=%s,term_w=%s-iter=%s-test_iter=%s-test_zero_w=%s" % args
+            experiment_dir = 'experiments/' + descr
+            if not os.path.exists(experiment_dir):
+                os.makedirs(experiment_dir)
         
-        with open(experiment_dir + '/cmd', 'w+') as f:
-            f.write(descr)
+            with open(experiment_dir + '/cmd', 'w+') as f:
+                f.write(descr)
         
-        #runTraining(*((experiment_dir, ) + args))
-        ps.append(Process(target=runTraining, args=(experiment_dir, ) + args))
+            runTraining(*((experiment_dir, ) + args))
+            #ps.append(Process(target=runTraining, args=(experiment_dir, ) + args))
         
-    
+        #except Exception as ex:
+        #    print ex
+        #    pass
     for p in ps:
         p.start()
     
@@ -503,6 +524,10 @@ def testUsingOptions():
                                    min_df=opts.min_df, max_df=opts.max_df, term_freq_weight=opts.term_freq_weight, num_iter=opts.num_iter) 
 
 if __name__ == "__main__":
+    db = MySQLdb.connect(host='127.0.0.1', user='root',
+                         passwd='1qaz@WSX', db='paperity_full')
+
+    #insert_all(db, rootdir, 1)
     #testUsingOptions()
     runMultipleTests()
     #testProfileInference(sys.argv[1])

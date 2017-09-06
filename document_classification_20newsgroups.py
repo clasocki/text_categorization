@@ -22,16 +22,20 @@ The bar plot indicates the accuracy, training time (normalized) and test time
 #         Lars Buitinck
 # License: BSD 3 clause
 
-from __future__ import print_function
 
 import logging
 import numpy as np
 from optparse import OptionParser
 import sys
 from time import time
-import matplotlib.pyplot as plt
-plt.switch_backend('agg')
+#import matplotlib
+#matplotlib.use('GTK')
+#matplotlib.use('Qt5Agg')
 
+#import matplotlib.pyplot as plt
+#import seaborn as sn
+
+#plt.switch_backend('agg')
 
 from sklearn.datasets import fetch_20newsgroups
 from sklearn.feature_extraction.text import TfidfVectorizer
@@ -51,7 +55,6 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.utils.extmath import density
 from sklearn import metrics
 
-from training_set_expansion import getLabeledSetGensim, LocalDocumentGenerator
 import gensim_tests
 from semantic_model import SemanticModel, DocumentIterator, tokenize1
 import pandas as pd
@@ -59,6 +62,7 @@ from nltk.corpus import reuters
 from sklearn.preprocessing import MultiLabelBinarizer
 from sklearn.multiclass import OneVsRestClassifier
 from sklearn.decomposition import TruncatedSVD
+import itertools
 
 # Display progress logs on stdout
 logging.basicConfig(level=logging.INFO,
@@ -66,10 +70,39 @@ logging.basicConfig(level=logging.INFO,
 
 class Tokenizer(object):
     def __call__(self, doc):
-        return tokenize(doc).split()
-
-###############################################################################
+        return tokenize1(doc).split()
 # Benchmark classifiers
+"""
+def plot_confusion_matrix(cm, classes,
+                          normalize=False,
+                          title='Confusion matrix',
+                          cmap=plt.cm.Blues):
+    plt.imshow(cm, interpolation='nearest', cmap=cmap)
+    plt.title(title)
+    #plt.colorbar()
+    tick_marks = np.arange(len(classes))
+    plt.xticks(tick_marks, classes, rotation=45)
+    plt.yticks(tick_marks, classes)
+
+    if normalize:
+        cm = cm.astype('float') / cm.sum(axis=1)[:, np.newaxis]
+        print("Normalized confusion matrix")
+    else:
+        print('Confusion matrix, without normalization')
+
+    print(cm)
+
+    thresh = cm.max() / 2.
+    for i, j in itertools.product(range(cm.shape[0]), range(cm.shape[1])):
+        plt.text(j, i, cm[i, j],
+                 horizontalalignment="center",
+                 color="white" if cm[i, j] > thresh else "black")
+
+    plt.tight_layout()
+    plt.ylabel('True label')
+    plt.xlabel('Predicted label')
+"""
+###############################################################################
 def benchmark(clf, clf_name, X_train, y_train, X_test, y_test, multilabel):
     #print('_' * 80)
     #print("Training: ")
@@ -81,6 +114,8 @@ def benchmark(clf, clf_name, X_train, y_train, X_test, y_test, multilabel):
 
     t0 = time()
     pred = clf.predict(X_test)
+    print pred
+    #print clf.predict_proba(X_test).tolist()
     test_time = time() - t0
     print("test time:  %0.3fs" % test_time)
 
@@ -116,16 +151,28 @@ def benchmark(clf, clf_name, X_train, y_train, X_test, y_test, multilabel):
         print(metrics.classification_report(y_test, pred,
                                             target_names=target_names))
     """
-    #print(metrics.confusion_matrix(y_test, pred))
+    """
+    cnf_matrix = metrics.confusion_matrix(y_test, pred)
+    print(clf.classes_.tolist())
+    print(cnf_matrix.tolist())
+    
+    df_cm = pd.DataFrame(cnf_matrix, index=clf.classes_, columns=clf.classes_)
+    sn.heatmap(df_cm, annot=True)
+    plt.xticks(rotation='vertical')
+    plt.yticks(rotation=0) 
+    plt.savefig('conf_matrix' + clf_name.replace(" ", "") + '.png')
+    """
     #print()
-    return clf_name, score, train_time, test_time
+    #print metrics.classification_report(y_test, pred, target_names=clf.classes_)
+
+    return clf_name, score, pred
 
 class Tokenizer(object):
     def __call__(self, doc):
-        return tokenize(doc).split()
+        return tokenize1(doc).split()
 
 def svd(num_features):
-    vectorizer = TfidfVectorizer(tokenizer=Tokenizer(), stop_words='english', min_df=0.001, max_df=0.33,
+    vectorizer = TfidfVectorizer(tokenizer=Tokenizer(), stop_words='english', min_df=1, max_df=0.5,
                                  use_idf=True, smooth_idf=True, sublinear_tf=True)
     svd_model = TruncatedSVD(n_components=num_features, algorithm='randomized',
                              n_iter=10, random_state=42)
@@ -139,25 +186,26 @@ def svd(num_features):
     #return svd_matrix
 
 def testClassifiers(X_train, y_train, X_test, y_test, multilabel):
+    mlb = None
     if multilabel:
         mlb = MultiLabelBinarizer()
-
-        y_train = mlb.fit_transform(y_train)
+        mlb = mlb.fit(y_train)
+        y_train = mlb.transform(y_train)
         y_test = mlb.transform(y_test)
         
     results = []
     for clf, clf_name in (
-            (RidgeClassifier(tol=1e-2, solver="lsqr"), "Ridge Classifier"),
+            #(RidgeClassifier(tol=1e-2, solver="lsqr"), "Ridge Classifier"),
             #(Perceptron(n_iter=50), "Perceptron"),
             #(PassiveAggressiveClassifier(n_iter=50), "Passive-Aggressive"),
-            (KNeighborsClassifier(n_neighbors=10), "kNN"),
-            (KNeighborsClassifier(n_neighbors=10, algorithm='brute', metric='cosine'), "kNN cosine"),
+            #(KNeighborsClassifier(n_neighbors=10), "kNN"),
+            #(KNeighborsClassifier(n_neighbors=8, algorithm='brute', metric='cosine'), "kNN cosine"),
             #(RandomForestClassifier(n_estimators=100), "Random forest"),
-            (LinearSVC(penalty="l2", dual=False, tol=1e-3), "Linear SVC [l2]"),
+            #(LinearSVC(penalty="l2", dual=False, tol=1e-3), "Linear SVC [l2]"),
             #(LinearSVC(penalty="l1", dual=False, tol=1e-3), "Linear SVC [l1]"),
             #(SGDClassifier(alpha=.0001, n_iter=50, penalty="l2"), "SGD Classifier [l2]"),
             #(SGDClassifier(alpha=.0001, n_iter=50, penalty="l1"), "SGD Classifier [l1]"),
-            (SGDClassifier(alpha=.0001, n_iter=50, penalty="elasticnet"), "SGD Classifier [elasticnet]"),
+            (SGDClassifier(alpha=.001, n_iter=50, penalty="elasticnet"), "SGD Classifier [elasticnet]"),
             #(NearestCentroid(), "Nearest Centroid"), #not suitable for multilabel
             #(Pipeline([
             #    ('feature_selection', SelectFromModel(LinearSVC(penalty="l1", dual=False, tol=1e-3))),
@@ -169,17 +217,17 @@ def testClassifiers(X_train, y_train, X_test, y_test, multilabel):
             clf = OneVsRestClassifier(clf)
         results.append(benchmark(clf, clf_name, X_train, y_train, X_test, y_test, multilabel))
 
-    # make some plots
-
     indices = np.arange(len(results))
 
-    results = [[x[i] for x in results] for i in range(4)]
+    results = [[x[i] for x in results] for i in xrange(len(results[0]))]
+    if multilabel:
+        preds = results[2]
+        for i, pred in enumerate(preds):
+            preds[i] = mlb.inverse_transform(pred)
 
-    clf_names, score, training_time, test_time = results
-    
-    
     return results
 
+    """
     training_time = np.array(training_time) / np.max(training_time)
     test_time = np.array(test_time) / np.max(test_time)
 
@@ -199,6 +247,7 @@ def testClassifiers(X_train, y_train, X_test, y_test, multilabel):
         plt.text(-.3, i, c)
 
     plt.savefig('classifier_comparison.pdf')
+    """
 
 def reutersSet():
     documents = reuters.fileids()
@@ -233,7 +282,7 @@ def newsgroupsSet():
 
     categories = None
 
-    remove = ('headers', 'footers', 'quotes')
+    #remove = ('headers', 'footers', 'quotes')
     remove = ()
 
     data_train = fetch_20newsgroups(subset='train', categories=categories,
@@ -303,33 +352,27 @@ if __name__ == "__main__":
     ###############################################################################
     # Load some categories from the training set
     
-    #train_docs, test_docs, y_train, y_test, multilabel = newsgroupsSet()
-    train_docs, test_docs, y_train, y_test, multilabel = reutersSet()
+    train_docs, test_docs, y_train, y_test, multilabel = newsgroupsSet()
+    #train_docs, test_docs, y_train, y_test, multilabel = reutersSet()
 
     #y_train, y_test = [[x] for x in target_names[data_train.target]], [[x] for x in target_names[data_test.target]]
 
     print("Extracting features from the training data using a sparse vectorizer")
     t0 = time()
-    if opts.use_hashing:
-        vectorizer = HashingVectorizer(stop_words='english', non_negative=True,
-                                       n_features=opts.n_features)
-        X_train = vectorizer.transform(train_docs)
-    else:
-        vectorizer = TfidfVectorizer(sublinear_tf=True, min_df=0.001, max_df=0.33,
-                                     stop_words='english')
-        X_train = vectorizer.fit_transform(train_docs)
-    svd_transformer = svd(300)
+    #vectorizer = TfidfVectorizer(sublinear_tf=True, min_df=0.00, max_df=0.5,
+    #                                 stop_words='english')
+    #X_train = vectorizer.fit_transform(train_docs)
+    #svd_transformer = svd(300)
     #X_train = svd_transformer.fit_transform(train_docs)
-    #semantic_model = gensim_tests.SemanticModel.build((tokenize(text).split() for text in train_docs), 400, 
-    #                                                 0.001 * len(train_docs), 0.33 * len(train_docs))
-    #X_train = np.asarray([semantic_model.inferProfile(tokenize(x).split()) for x in train_docs])
+    semantic_model = gensim_tests.SemanticModel.build(lambda: (text for text in train_docs), 400, no_below=0.001 * len(train_docs), no_above=0.33)
+    print "Model building time: " + str(time() - t0)
+    X_train = np.asarray([semantic_model.inferProfile(x) for x in train_docs])
     
     #document_iterator = DocumentIterator(doc_filter="published = 1 and learned_category is not null", 
     #                                     document_batch_size=5000, db_window_size=5000)
 
-    iter_semantic_model = SemanticModel.load('experiments/165__reuters_propValSet_triples_pos_rmse_num_f=300-learn_r=0.001-regul_f=0.01-zero_w=3.0-doc_low=-0.01-doc_high=0.01-word_low=-0.01-word_high=-0.01-decay=2.0-min_df=0.001-max_df=0.33,term_w=log_normalization-iter=80/semantic_model.snapshot', document_iterator=None, word_profiles_in_db=False)
-    X_train = np.asarray([iter_semantic_model.inferProfile(x, num_iters=30, learning_rate=0.001, regularization_factor=0.01) for x in train_docs])
-    print(X_train)
+    #iter_semantic_model = SemanticModel.load('experiments/165__reuters_propValSet_triples_pos_rmse_num_f=300-learn_r=0.001-regul_f=0.01-zero_w=3.0-doc_low=-0.01-doc_high=0.01-word_low=-0.01-word_high=-0.01-decay=2.0-min_df=0.001-max_df=0.33,term_w=log_normalization-iter=80/semantic_model.snapshot', document_iterator=None, word_profiles_in_db=False)
+    #X_train = np.asarray([iter_semantic_model.inferProfile(x, num_iters=30, learning_rate=0.001, regularization_factor=0.01) for x in train_docs])
 
     """
     query = "SELECT profile, learned_category FROM pap_papers_view WHERE published = 1 and profile is not null and learned_category is not null"
@@ -353,14 +396,15 @@ if __name__ == "__main__":
     t0 = time()
     #X_test = vectorizer.transform(test_docs)
     #X_test = svd_transformer.transform(test_docs)
-    #X_test = np.asarray([semantic_model.inferProfile(tokenize(x).split()) for x in test_docs])
-    X_test = np.asarray([iter_semantic_model.inferProfile(x, num_iters=30, learning_rate=0.001, regularization_factor=0.01) for x in test_docs])
+    X_test = np.asarray([semantic_model.inferProfile(x) for x in test_docs])
+    #X_test = np.asarray([iter_semantic_model.inferProfile(x, num_iters=30, learning_rate=0.001, regularization_factor=0.01) for x in test_docs])
     #print (X_test)
     duration = time() - t0
     #print("n_samples: %d, n_features: %d" % X_test.shape)
     print()
 
     # mapping from integer feature name to original token string
+    """
     if opts.use_hashing:
         feature_names = None
     else:
@@ -382,7 +426,7 @@ if __name__ == "__main__":
 
     if feature_names:
         feature_names = np.asarray(feature_names)
-
+    """
 
     def trim(s):
         """Trim string to fit on terminal (assuming 80-column display)"""
