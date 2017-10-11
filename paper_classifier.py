@@ -210,6 +210,16 @@ class RawTextCorpus(object):
         for doc in self.corpus:
             yield doc.fulltext
 
+class LabeledCorpus(object):
+    """Converts a multi-iterable corpus where each document has a fulltext property to a corpus of raw texts.
+       Required for building SemanticModel that operates on raw texts only.
+    """
+    def __init__(self, corpus):
+        self.corpus = corpus
+
+    def __iter__(self):
+        for doc in self.corpus:
+            yield doc.pid, doc.fulltext, doc.disciplines
         
 class PaperClassifier():
     CLASSIFIER_SERIAL_PATH = 'paper_classifier.clf'
@@ -217,27 +227,27 @@ class PaperClassifier():
     def __init__(self):
         self.semantic_model = None
         self.classifier = None
-        self.disciplineHandler = TupleFieldHandler() #TODO delete the handler as the disciplines should be parsed by the Paper class
 
     def prepareTrainingSet(self, trainset):
-        """ -trainset: an instance of Corpus consisting of docs with already assigned disciplines
+        """ -trainset: an iterable collection of tuples: (pid, raw text, disciplines) for papers with already assigned disciplines
         Returns a tuple: (train_profiles, profiles_dict, train_labels):
         -train_profiles: extracted profiles for each doc
         -train_labels: a list of known labels for each doc
         -profiles_dict: mappings between labels and lists of corresponding profiles
         """
-        train_profiles, profiles_dict, train_labels = [], defaultdict(list), []
-        for doc in trainset: #documents with already assigned labels
-            categories = [discipline for discipline, score in doc.disciplines]
-            profile = self.semantic_model.inferProfile(doc.fulltext)
+        train_profiles, profiles_dict, train_labels, labeled_docs_ids = [], defaultdict(list), [], set()
+        for pid, text, disciplines in trainset:
+            categories = [discipline for discipline, score in disciplines]
+            profile = self.semantic_model.inferProfile(text)
             
             for category in categories:
                 profiles_dict[category].append(profile)
             
             train_profiles.append(profile)
             train_labels.append(categories)
+            labeled_docs_ids.add(pid)
         
-        return train_profiles, profiles_dict, train_labels
+        return train_profiles, train_labels, profiles_dict, labeled_docs_ids
 
     def fitClassifier(self, train_profiles, train_labels):
         clf = LogisticRegression(C=1.0, solver='lbfgs')
@@ -251,7 +261,7 @@ class PaperClassifier():
 
         return clf, mlb
 
-    def allocateNewLabels(self, corpus, profiles_dict, classifier, label_binarizer, 
+    def allocateNewLabels(self, corpus, profiles_dict, classifier, label_binarizer, labeled_docs_ids,
             max_labels=2, min_confidence=0.8, max_closest_docs=0.05, max_new_allocs=0.05):
         """Iterates over corpus and assigns labels to documents with highest confidence.
         -corpus: an instance of Corpus
@@ -259,34 +269,38 @@ class PaperClassifier():
                         used to choose only labels for those documents which 
                         have high enough average distance to docs with the same already assigned label
         -label_binarizer: MultiLabelBinarizer: transforms between a string class format and a multi-label format
+        -labeled_docs_ids: a set of pids for those papers that already have had labels assigned
         -max_labels: specifies how many labels maximum can be assigned to a document
         -min_confidence: only docs with highest confidence will have labels assigned
         -max_closest_docs: fraction of the total number of newly-labeled docs with a given class that can have labels assigned
         -max_new_allocs: specifies how many docs maximum can have labels assigned, 
                          (as a fraction of the total number of docs with already assigned labels)
+        
+        Returns: a generator for a list of tuples: (paper pid, profile, list of labels)
         """
         new_lbl_allocs = defaultdict(list)
+        new_profiles = dict()
     
         #assign most confident labels based on confidence scores provided by the classfier
-        for doc_count, doc in enumerate(corpus):
-            if doc.disciplines: continue
+        for doc in enumerate(corpus):
             text = doc.fulltext
             pid = doc.pid
             
-            if not text: continue
+            if not text or pid in labeled_docs_ids: continue
             profile = self.semantic_model.inferProfile(text)
             if not profile.any(): continue
         
             probas = classifier.predict_proba([profile])[0]
+            probas = probas[probas >= min_confidence]
             max_proba_ids = numpy.argsort(probas)[-max_labels:]
 
-            #if doc_count % 10000 == 0: joblib.dump(new_lbl_allocs, 'new_lbl_allocs.pkl')
+            if probas.any():
+                new_profiles[pid] = profile
 
             for max_proba_id in max_proba_ids:
-                if probas[max_proba_id] >= min_confidence:
-                    class_ = label_binarizer.classes_[max_proba_id]
-                    avg_dist = pairwise_distances([profile], profiles_dict[class_], metric='cosine').sum() / float(len(profiles_dict[class_]))
-                    new_lbl_allocs[class_].append((avg_dist, pid, probas[max_proba_id]))
+                class_ = label_binarizer.classes_[max_proba_id]
+                avg_dist = pairwise_distances([profile], profiles_dict[class_], metric='cosine').sum() / float(len(profiles_dict[class_]))
+                new_lbl_allocs[class_].append((avg_dist, pid))
         
         #for each label narrow down the allocations to only those for which average distance to observations with know labels is small
         for lbl, allocs in new_lbl_allocs.iteritems():
@@ -302,34 +316,34 @@ class PaperClassifier():
         for lbl in new_lbl_allocs.keys():
             new_lbl_allocs[lbl] = new_lbl_allocs[lbl][:max_num_new_allocs]
     
-            for avg_dist, pid, proba in new_lbl_allocs[lbl]:
-                lbls_per_doc[pid].append((lbl, int(proba * 100)))
+            for avg_dist, pid in new_lbl_allocs[lbl]:
+                profile = new_profiles[pid]
+                lbls_per_doc[(pid, profile)].append(lbl)
         
-        return lbls_per_doc
+        return (pid, profile, labels) for (pid, profile), labels in lbls_per_doc.iteritems()
 
     def propagateLabels(self, trainset, corpus, max_num_labeled_docs=20000):
         """Iteratively allocates new labels to documents in corpus until a given number of documents is labeled.
         """
-        train_profiles, profiles_dict, train_labels = self.prepareTrainingSet(trainset)
+        train_profiles, train_labels, profiles_dict, labeled_docs_ids = self.prepareTrainingSet(trainset)
         num_labeled_docs = sum([len(profiles) for profiles in profiles_dict.values()])
 
         while num_labeled_docs <= max_num_labeled_docs:
             classifier, label_binarizer = self.fitClassifier(train_profiles, train_labels)
-            lbls_per_doc = self.allocateNewLabels(corpus, profiles_dict, classifier, label_binarizer)
+            new_allocations = self.allocateNewLabels(corpus, profiles_dict, classifier, label_binarizer, labeled_docs_ids)
 
-            for pid, lbls in lbls_per_doc.iteritems(): #TODO new label allocations for papers should be saved more gracefully
-                sql_update = "update pap_papers_1 set disciplines = '" + self.disciplineHandler.onWrite(lbls, None) + \
-	        	"' WHERE pid = " + str(pid)
-        
-	        db.query(sql_update)
-	        db.commit()
+            for pid, profile, lbls in new_allocations:
+                labeled_docs_ids.add(pid)
+                train_profiles.append(profile)
+                train_labels.append(lbls)
+
+                for lbl in lbls:
+                    profiles_dict[lbl].append(profile)
 
                 num_labeled_docs += 1
 
             if num_labeled_docs > max_num_labeled_docs: break
              
-            train_profiles, profiles_dict, train_labels = self.prepareTrainingSet(trainset)
-
     @staticmethod
     def build(corpus, trainset):
 	"""Builds a semantic model + document classifier on a given corpus of documents.
@@ -342,7 +356,7 @@ class PaperClassifier():
         paper_clf.semantic_model = SemanticModel.load('paper_classifier_dumps') 
           
         #paper_clf.propagateLabels(trainset, corpus)
-        train_profiles, _, train_labels = paper_clf.prepareTrainingSet(trainset)
+        train_profiles, train_labels, _, _ = paper_clf.prepareTrainingSet(trainset)
         classifier, label_binarizer = paper_clf.fitClassifier(train_profiles, train_labels)
         paper_clf.classifier = classifier
         paper_clf.label_binarizer = label_binarizer
@@ -358,8 +372,9 @@ class PaperClassifier():
 	"""
         profile = self.semantic_model.inferProfile(fulltext)
         confidence_scores = self.classifier.predict_proba([profile])[0]
+        confidence_scores /= confidence_scores.sum(axis=1).reshape((confidence_scores.shape[0], -1))
         sorted_conf_ids = numpy.argsort(confidence_scores)[-3:]
-        max_conf_ids = [max_id for max_id in sorted_conf_ids if confidence_scores[max_id] >= 0.5]
+        max_conf_ids = [max_id for max_id in sorted_conf_ids if confidence_scores[max_id] >= 0.4]
         if not max_conf_ids:
             max_conf_ids = sorted_conf_ids[-1:].tolist()
         
@@ -396,7 +411,7 @@ if __name__ == "__main__":
    
     #corpus = Corpus(db, doc_filter="published = 1 and disciplines is null")
     #trainset = Corpus(db, doc_filter="disciplines is not null")
-    trainset = Corpus(db, doc_filter="published = 0 and is_test = 1")
+    trainset = LabeledCorpus(Corpus(db, doc_filter="published = 0 and is_test = 1"))
     corpus = Corpus(db, doc_filter="published = 1 and is_test = 1")
 
     paper_classifier = PaperClassifier.build(corpus, trainset)

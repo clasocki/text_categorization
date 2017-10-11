@@ -24,6 +24,7 @@ import csv
 import numbers
 from sklearn.preprocessing import MultiLabelBinarizer
 from sklearn.multiclass import OneVsRestClassifier, OneVsOneClassifier
+from sklearn.multioutput import ClassifierChain
 from sklearn.linear_model import SGDClassifier, LogisticRegression
 from sklearn.svm import LinearSVC
 import pickle
@@ -31,6 +32,16 @@ import os
 import operator
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import KFold, StratifiedKFold
+from sklearn.pipeline import make_pipeline
+from sklearn.preprocessing import StandardScaler
+from skmultilearn.problem_transform.br import BinaryRelevance
+from sklearn.neural_network import MLPClassifier
+from sklearn.ensemble import BaggingClassifier
+from skmultilearn.ensemble import RakelD
+from sklearn.calibration import CalibratedClassifierCV
+from sklearn.model_selection import train_test_split
+from sklearn.naive_bayes import GaussianNB
+
 
 LABELED_DOCUMENTS_CONDITION = "published = 1 AND learned_category IS NOT NULL"
 UNLABELED_DOCUMENTS_CONDITION = "published = 1 AND learned_category IS NULL"
@@ -93,8 +104,6 @@ def find_closest_categories(all_categories, distances, n):
         print "distances: " + str(distances[closest_category_indices])
 	average_distance = numpy.mean(distances[closest_category_indices])
 	return closest_categories, average_distance
-
-
 
 def assign_category(document_pid, categories):
         #sql_update = "update pap_papers_2 p2 join pap_papers_1 p1 on p1.id = p2.id set p2.learned_category = '" + categories + \
@@ -162,6 +171,8 @@ def propagate_labels(labeled_profiles, labels, acceptable_distance):
 def prepareDocSet(doc_filter, semantic_model):
     doc_iter = getDocumentIterator1(doc_filter)
     doc_profiles, profiles_dict, doc_labels = [], defaultdict(list), []
+    bows = []
+    
     for doc in doc_iter:
         cats = doc.learned_category
         profile = semantic_model.inferProfile(doc.rawtext)
@@ -170,102 +181,246 @@ def prepareDocSet(doc_filter, semantic_model):
             profiles_dict[cat].append(profile)
         doc_profiles.append(profile)
         doc_labels.append(cats)
+        bows.append(semantic_model.dict.doc2bow(semantic_model.tokenize(doc.rawtext)))
 
+    return numpy.asarray(doc_profiles), numpy.asarray(doc_labels), bows
 
-    return numpy.asarray(doc_profiles), numpy.asarray(doc_labels)
+def save_labels():
+    initial_train_set_iter = getDocumentIterator1("published = 0 and is_test = 1")
+    initial_test_set_iter = getDocumentIterator1("published = 1 and is_test = 1")
+    extended_set_iter = getDocumentIterator1("is_test is null and learned_category is not null")
+
+    iters = [(initial_train_set_iter, 'initial_train_set'), (initial_test_set_iter, 'initial_test_set'), (extended_set_iter, 'extended_set')]
+
+    for it, setname in iters:
+        doc_set = []
+        for doc in it:
+            doc_set.append((doc.id, doc.learned_category))
+            
+        pickle.dump(doc_set, open( 'dataset/backup_' + setname, "wb" ) )
+
+def inspect_docs_as_bows():
+    docs = getDocumentIterator1("learned_category = 'lit'")
+    #semantic_model = gensim_tests.SemanticModel.load('gensim/full_corpus_400_300000')
+    semantic_model = gensim_tests.SemanticModel.load('gensim/initial_set_400_dict_initial_set')
+
+    for doc in docs:
+        words = []
+        semantic_model.tokenize(doc.rawtext)
+        tokenized_text = semantic_model.tokenize(doc.rawtext)
+        text_bow = semantic_model.dict.doc2bow(tokenized_text)
+        for word_id in text_bow:
+            w = semantic_model.dict[word_id[0]]
+            words.append(w)
+
+        print doc.id, words
+
+def prepare_doc_split():
+    labeled_docs = getDocumentIterator1("is_test = 1")
+
+    ids, labels = [], []
+    for doc in labeled_docs:
+        ids.append(doc.id)
+        labels.append(doc.learned_category[0])
+
+    X_train, X_test, y_train, y_test = train_test_split(ids, labels, test_size=0.3, stratify=labels) 
+    
+    for x in X_train:
+        sql_update = "update pap_papers_1 set published = 0 WHERE id = " + str(x)
+        
+	db.query(sql_update)
+	db.commit()
+    
+    for x in X_test:
+        sql_update = "update pap_papers_1 set published = 1 WHERE id = " + str(x)
+        
+	db.query(sql_update)
+	db.commit()
 
 def test_training_and_validation_set():
     multilabel = True
-    cross_validate = True
+    cross_validate = False
+    use_extended_predictions = True
     
     #semantic_model = gensim_tests.SemanticModel.build(lambda: validation_texts, 150)
-    semantic_model = gensim_tests.SemanticModel.load('gensim/small_corpus_400_300000')
+    #semantic_model = gensim_tests.SemanticModel.load('gensim/small_corpus_400_300000')
     #print semantic_model.lsi.num_topics
-    #semantic_model = gensim_tests.SemanticModel.load('gensim/full_corpus_400_300000')
-    #semantic_model.lsi.num_topics = 400
+    semantic_model = gensim_tests.SemanticModel.load('gensim/full_corpus_400_300000')
+    #semantic_model = gensim_tests.SemanticModel.load('gensim/full_corpus_400_300000_stem')
+    #semantic_model = gensim_tests.SemanticModel.load('gensim/initial_set_400_dict_initial_set')
+    #semantic_model = gensim_tests.SemanticModel.load('gensim/initial_set_400_dict_full_set')
+    semantic_model.lsi.num_topics = 400
    
     splits = []
     if cross_validate:
-        profiles, labels = prepareDocSet("learned_category is not null", semantic_model)
+        profiles, labels, _ = prepareDocSet("is_test = 1", semantic_model)
         for train_ids, test_ids in StratifiedKFold(n_splits=5).split(X=numpy.zeros(len(labels)), y=[x[0] for x in labels]):
-            splits.append((profiles[train_ids], labels[train_ids], profiles[test_ids], labels[test_ids]))
+            splits.append(
+                    (profiles[train_ids], numpy.array([l for l in labels[train_ids]]), profiles[test_ids], numpy.array([l for l in labels[test_ids]])))
     else:
-        training_profiles, training_labels = prepareDocSet("published = 0 and is_test = 1", semantic_model)#, multilabel)
-        validation_profiles, validation_labels = prepareDocSet("published = 1 and is_test = 1", semantic_model)#, multilabel)
+        train_pids = []
+        train_filter = ""
+        #train_pids = expansionStats().keys()
+        #print len(train_pids)
+        #initial_train_set = pickle.load( open('dataset/backup_initial_train_set', "rb" ) )
+        #train_pids += [pid for pid, _ in initial_train_set]
+        #train_filter += 'pid in (' + ','.join([str(x) for x in train_pids]) + ')'
+        #train_filter = 'id in (' + ','.join([str(pid) for id, _ in initial_train_set]) + ')'
+        #initial_test_set = pickle.load( open('dataset/backup_initial_test_set', "rb" ) )
+        #test_filter = 'id in (' + ','.join([str(pid) for pid, _ in initial_test_set]) + ')'
+        #train_filter += " or "
+        train_filter += " (learned_category is not null and is_test is null)"
+        train_filter += "or (published = 0 and is_test = 1)"
+        test_filter = "published = 1 and is_test = 1"
+        #semantic_model = gensim_tests.SemanticModel.build(lambda: (doc.rawtext for doc in getDocumentIterator1(train_filter)), no_below=2, no_above=0.33, num_features=400, filepath='gensim/default')
+
+        training_profiles, training_labels, _ = prepareDocSet(train_filter, semantic_model)#, multilabel)
+        #training_profiles, training_labels = prepareDocSet("learned_category is not null and is_test is null", semantic_model)#, multilabel)
+        validation_profiles, validation_labels, validation_bows = prepareDocSet(test_filter, semantic_model)#, multilabel) #"published = 1 and is_test = 1"
+        #profiles, labels, _ = prepareDocSet("is_test = 1", semantic_model)
+        print len(training_profiles)
+        print len(validation_profiles)
+        #training_profiles, validation_profiles, training_labels, validation_labels = train_test_split(profiles, labels, test_size=0.5, stratify=[x[0] for x in labels]) 
+        """
+        pickle.dump(training_profiles, open( 'dataset/X_train', "wb" ) )
+        pickle.dump(training_labels, open( 'dataset/y_train', "wb" ) )
+        pickle.dump(validation_profiles, open( 'dataset/X_test', "wb" ) )
+        pickle.dump(validation_labels, open( 'dataset/y_test', "wb" ) )
+        return
+        """
+        if not multilabel:
+            training_labels = [p[0] for p in training_labels]
+            validation_labels = [p[0] for p in validation_labels]
         splits = [(training_profiles, training_labels, validation_profiles, validation_labels)]
     
-    accuracies = []
+    precisions, recalls, f1s = [], [], []
     for training_profiles, training_labels, validation_profiles, validation_labels in splits:
         #validation_profiles = numpy.asarray([semantic_model.inferProfile(x) for x in validation_texts])
         #training_profiles = numpy.asarray([semantic_model.inferProfile(x) for x in training_texts])
 
         #clf_names, score_results, pred_results = testClassifiers(X_test=validation_profiles, y_test=validation_labels, 
         #                                                          X_train=training_profiles, y_train=training_labels, multilabel=multilabel)
+        
+        #knn = KNeighborsClassifier(n_neighbors=10, algorithm='brute', metric='cosine')
+        #knn.fit(training_profiles, training_labels)
+
         mlb = None
         if multilabel:
             mlb = MultiLabelBinarizer()
             mlb = mlb.fit(training_labels)
             training_labels = mlb.transform(training_labels)
+            #non_zeros = numpy.asarray([numpy.count_nonzero(x) for x in training_labels])
+            #print "Train: " + str(non_zeros)
+            #print len(non_zeros[non_zeros == 0])
 
-        #clf = KNeighborsClassifier(n_neighbors=10, algorithm='brute', metric='cosine')
-        #clf = LinearSVC(penalty="l2", dual=False, tol=1e-3)
-        #clf = RandomForestClassifier(n_estimators=150, class_weight='balanced')
+        #clf = LinearSVC(class_weight='balanced')
+        #clf = RandomForestClassifier(n_estimators=5000)
+        
+        clf = LogisticRegression(C=1.0, solver='lbfgs', max_iter=10000) #, class_weight='balanced')
+        #clf = GaussianNB() 
+        #clf = make_pipeline(StandardScaler(), clf)
+        #clf = CalibratedClassifierCV(clf, method='sigmoid')
         #clf = LogisticRegression(solver='sag', max_iter=100, random_state=42, multi_class='multinomial')
-        clf = SGDClassifier(alpha=0.001, n_iter=1000, loss="log", class_weight='balanced')
+        #clf = SGDClassifier(alpha=0.001, n_iter=1000, loss="log")#, class_weight='balanced')
+        #clf = BaggingClassifier(LogisticRegression(C=1.0, solver='lbfgs'), max_samples=0.5, max_features=0.5)
+
         if multilabel:
             clf = OneVsRestClassifier(clf)
+        #clf = ClassifierChain(clf)
+        #clf = RakelD(classifier=clf, labelset_size=3, require_dense=[False, False])
+        #clf = MLPClassifier()
+        #clf = BinaryRelevance(LogisticRegression(C=1.0, solver='lbfgs'))
         clf.fit(training_profiles, training_labels)
         #print clf.classes_
-        max_labels = 2 if multilabel else 2
+        max_labels = 2
 
-        preds = clf.predict(validation_profiles)
         #probas = mlb.inverse_transform(probas)
         probas = clf.predict_proba(validation_profiles)
+        #probas /= probas.sum(axis=1).reshape((probas.shape[0], -1))
+
+        #decision_values =  clf.decision_function(validation_profiles).tolist()
+        #print probas
+
         allocs, max_probas = [], []
-
-        for proba in probas:
-            max_proba_ids = numpy.argpartition(proba, -max_labels)[-max_labels:]
-            local_allocs, local_max_probas = [], []
-            if multilabel:
+        if use_extended_predictions:
+            for proba in probas:
+                max_proba_ids = numpy.argsort(proba)[-max_labels:]
+                #print proba[max_proba_ids]
+                local_allocs, local_max_probas = [], []
                 for max_proba_id in max_proba_ids:
-                    if proba[max_proba_id] < 0.7: continue
-                    class_ = mlb.inverse_transform(clf.label_binarizer_.transform([max_proba_id]))[0][0]
-                    local_allocs.append(class_)
+                    if proba[max_proba_id] < 0.6: continue
+                    local_allocs.append(max_proba_id)
                     local_max_probas.append(proba[max_proba_id])
-            else:
-                for max_proba_id in max_proba_ids:
-                    if proba[max_proba_id] < 0.01: continue
-                    class_ = clf.classes_[max_proba_id]
-                    local_allocs.append(class_)
-                    local_max_probas.append(proba[max_proba_id])
-            max_probas.append(local_max_probas)
-            allocs.append(local_allocs)
+                
+                if not local_allocs and max_proba_ids.any():
+                    local_allocs.append(max_proba_ids[-1])
+                    local_max_probas.append(proba[max_proba_ids[-1]])
 
-        allocs = mlb.inverse_transform(preds)
-        
-        count, matches = 0, 0
-        for test_label, pred_labels, proba in zip(validation_labels, allocs, max_probas):
-            #print test_label, pred_labels, proba
-            count += 1
-            matches += (1 if not set(test_label).isdisjoint(pred_labels) else 0)
+                if multilabel:
+                    local_allocs = mlb.classes_[local_allocs]
+                else:
+                    local_allocs = clf.classes_[local_allocs]
+                    
+                max_probas.append(local_max_probas)
+                allocs.append(local_allocs)
+            pred = allocs
+        else:
+            pred = clf.predict(validation_profiles)
+            pred = mlb.inverse_transform(pred) if multilabel else pred
+        #print pred
+        #print max_probas
+        """
+        cnt = 0
+        for pl, dv, vl, vb, pr, vp in zip(max_probas, decision_values, validation_labels, validation_bows, pred, validation_profiles):
+            for p in pl:
+                if p < 0.2:
+                    print knn.predict_proba([vp]), knn.predict([vp])
+                    print p, pr, vl
+                    cnt += 1
+        print "Low max probas: " + str(cnt)
+        """
+        zero_ids = numpy.where(numpy.array([numpy.count_nonzero(p) for p in pred]) == 0)
+        non_zero_ids = numpy.where(numpy.array([numpy.count_nonzero(p) for p in pred]) != 0)
+
+        pickle.dump(numpy.array(validation_profiles)[zero_ids], open( 'dataset/zero_profiles', "wb" ) )
+        pickle.dump(numpy.array(validation_labels)[zero_ids], open( 'dataset/_zero_labels', "wb" ) )
+        pickle.dump(numpy.array(validation_profiles)[non_zero_ids], open( 'dataset/non_zero_profiles', "wb" ) )
+        pickle.dump(numpy.array(validation_labels)[non_zero_ids], open( 'dataset/non_zero_labels', "wb" ) )
+
+        #print mlb.inverse_transform(clf.label_binarizer_.transform(numpy.argsort(probas[3])))
+        #print probas
+        #print [p[p > 0.2] for p in probas]
+        non_zeros = numpy.asarray([numpy.count_nonzero(x) for x in pred])
+        print "Preds: " + str(non_zeros)
+        #print len(non_zeros[non_zeros == 0])
 
         if not multilabel:
             #cnf_matrix = confusion_matrix([lbls[0] for lbls in validation_labels], [lbls[0] for lbls in allocs])
             #print clf.classes_.tolist()
             #print cnf_matrix.tolist()
+            #mlb = MultiLabelBinarizer()
+            #mlb = mlb.fit([[x] for x in validation_labels])
+            #y_test = mlb.transform([[x] for x in validation_labels])
+            #pred = mlb.transform(pred)
+            y_test = validation_labels
             pass
         else:
             #print validation_labels, allocs
             #print [x for x in validation_labels], [x for x in allocs]
             y_test = mlb.transform(validation_labels)
-            pred = mlb.transform(allocs)
+            pred = mlb.transform(pred)
+        precision = metrics.precision_score(y_test, pred, average='micro')
+        recall = metrics.recall_score(y_test, pred, average='micro')
+        f1 = metrics.f1_score(y_test, pred, average='micro')
+        print pred 
+        print precision, recall, f1
+        
+        precisions.append(precision)
+        recalls.append(recall)
+        f1s.append(f1)
 
-            precision = metrics.precision_score(y_test, pred, average='micro')
-            recall = metrics.recall_score(y_test, pred, average='micro')
-            f1 = metrics.f1_score(y_test, pred, average='micro')
-            report = classification_report(y_test, pred, target_names=mlb.classes_)
-            print precision, recall, f1
-            print report
+        report = classification_report(y_test, pred, target_names=mlb.classes_ if multilabel else clf.classes_)
+        print report
 
         """
         for clf_name, preds in zip(clf_names, pred_results):
@@ -274,12 +429,12 @@ def test_training_and_validation_set():
                 for test_label, pred_label, text_id in zip(labels, preds, labeled_docs_ids):
                     csv_writer.writerow([','.join(test_label) if multilabel else test_label, ','.join(pred_label) if multilabel else pred_label, text_id])
         """
-        accuracy = matches / float(count)
-        print accuracy
-        accuracies.append(accuracy)
-
-    print numpy.sum(accuracies) / float(len(splits))
-
+    print precisions
+    print recalls
+    avg_precision = numpy.sum(precisions) / float(len(splits))
+    avg_recall = numpy.sum(recalls) / float(len(splits))
+    avg_f1 = numpy.sum(f1s) / float(len(splits))
+    print avg_precision, avg_recall, avg_f1    
 
 def propagate_labels_gensim(labeled_profiles, labels, acceptable_distance, num_features, semantic_model, calc_distances, min_df, max_df, scores):
 	newly_labeled_documents = []
@@ -509,7 +664,7 @@ def testModelBuilding():
     doc_filter = "is_test = 1"
     #doc_filter = "(published = 1) or (published = 0 and is_test = 1)"
 
-    semantic_model = gensim_tests.SemanticModel.build(lambda: getDocumentIterator1(doc_filter), 400, filepath='gensim/small_corpus_400_300000')
+    semantic_model = gensim_tests.SemanticModel.build(lambda: (doc.rawtext for doc in getDocumentIterator1(doc_filter)), no_below=2, no_above=0.33, num_features=400, filepath='gensim/initial_set_400_dict_initial_set2')
 
     print "Model building finished: " + str(time.time() - start_time)
 
@@ -518,10 +673,13 @@ def propagateLabelsRowMapper(row):
 
 def propagateLabels():
     multilabel = True
-    
-    train_iter = getDocumentIterator1("is_test = 1")  #"learned_category is not null") #"is_test = 1") # published = 0 and is_test = 1
+    train_iter = getDocumentIterator1("(published = 0 and is_test = 1)")
+    #train_iter = getDocumentIterator1("(learned_category is not null and is_test is null) or (published = 0 and is_test = 1)") #"is_test = 1") # published = 0 and is_test = 1
     #validation_iter = getDocumentIterator1("published = 1 and is_test = 1")
-    semantic_model = gensim_tests.SemanticModel.load('gensim/small_corpus_400_300000')
+    #semantic_model = gensim_tests.SemanticModel.load('gensim/initial_set_400_dict_initial_set')
+    semantic_model = gensim_tests.SemanticModel.load('gensim/full_corpus_400_300000')
+    #semantic_model = gensim_tests.SemanticModel.load('gensim/initial_set_400_dict_full_set')
+
     train_profiles, profiles_dict, train_labels = [], defaultdict(list), []
     for doc in train_iter:
         cats = doc.learned_category
@@ -533,10 +691,11 @@ def propagateLabels():
         train_labels.append(cats)
 
     max_labels = 2
+    #training_profiles, validation_profiles, training_labels, validation_labels = train_test_split(profiles, labels, test_size=0.5, stratify=[x[0] for x in labels]) 
 
     #clf = KNeighborsClassifier(n_neighbors=10, algorithm='brute', metric='cosine')
-    clf = SGDClassifier(alpha=0.001, n_iter=1000, loss="log", class_weight='balanced')
-   
+    #clf = SGDClassifier(alpha=0.001, n_iter=1000, loss="log", class_weight='balanced')
+    clf = LogisticRegression(C=0.001, solver='lbfgs', max_iter=10000)
     clf = OneVsRestClassifier(clf)
     mlb = MultiLabelBinarizer()
     mlb = mlb.fit(train_labels)
@@ -545,7 +704,8 @@ def propagateLabels():
 
     clf.fit(train_profiles, train_labels)
     new_lbl_allocs = defaultdict(list)
-    allocs_file =  "new_lbl_allocs_small_first_iter.pkl"
+    allocs_file =  "allocs_fullcorpus_regul_first_iter.pkl"
+    confidence_scores_file = 'confidence_scores_fullcorpus_regul_first_iter.pkl'
     #if os.path.isfile(allocs_file):
     #    new_lbl_allocs = pickle.load( open(allocs_file, "rb" ) )
     processed_docs = set()
@@ -554,11 +714,12 @@ def propagateLabels():
             processed_docs.add(pid)
     print "Classifier learned"
     current_doc = 1
+    confidence_scores = defaultdict(list)
     
     start_time = time.time()
     print "Propagation started"
     current_iter_time = time.time()
-    for doc in getDocumentIterator1("published = 1 and is_test is null"): # learned_category is null"): #"published = 1 and is_test is null"):
+    for doc in getDocumentIterator1("learned_category is null and published = 1"): #"published = 1 and is_test is null"):
         text = doc.rawtext
         pid = doc.pid
         current_doc += 1
@@ -566,7 +727,7 @@ def propagateLabels():
  #       try:
         if not text: continue
         profile = semantic_model.inferProfile(text)
-        if not profile: continue
+        if not profile.any() or len(profile) < semantic_model.num_features: continue
         #pred = clf.predict([profile])[0]
         #mean_dists = pairwise_distances([profile], profiles_dict[pred], metric='cosine').sum() / float(len(profiles_dict[pred]) + 1)
         #new_lbl_allocs[pred].append((pred, pid, mean_dists))
@@ -575,8 +736,9 @@ def propagateLabels():
         max_proba_ids = numpy.argpartition(probas, -max_labels)[-max_labels:]
         current_doc_allocs = []
         for max_proba_id in max_proba_ids:
-            if probas[max_proba_id] > 0.7:
-                class_ = mlb.inverse_transform(clf.label_binarizer_.transform([max_proba_id]))[0][0]
+            class_ = mlb.inverse_transform(clf.label_binarizer_.transform([max_proba_id]))[0][0]
+            confidence_scores[class_].append(probas[max_proba_id])
+            if probas[max_proba_id] >= 0.5:
                 #class_ = clf.classes_[max_proba_id]
                 mean_dists = pairwise_distances([profile], profiles_dict[class_], metric='cosine').sum() / float(len(profiles_dict[class_]))
                 #class_ = mlb.classes_[max_proba_id]
@@ -584,6 +746,8 @@ def propagateLabels():
         
         if current_doc % 1000 == 0:
             pickle.dump(new_lbl_allocs, open( allocs_file, "wb" ) )
+            pickle.dump(confidence_scores, open( confidence_scores_file, "wb" ) )
+
             print current_doc, time.strftime("%H:%M:%S"),  time.time() - current_iter_time
             current_iter_time = time.time()
 #        except Exception as ex:
@@ -627,13 +791,13 @@ def testLabelPropagation():
 def expansionStats(save=False):
     paperity_df = pd.read_csv('2016-04-23_fulldump.csv', sep=';')
     #print paperity_df.columns
-    lbls_file =  "new_lbl_allocs_small_first_iter.pkl"
+    lbls_file =  "allocs_fullcorpus_second_iter.pkl"
     lbls = pickle.load(open(lbls_file, "rb"))
 
     allocs_per_doc = defaultdict(set)
     filtered_allocs_dict = dict()
     for lbl, allocs in lbls.iteritems():
-        filtered_allocs = [a for a in allocs if a[1] > 0.8]
+        filtered_allocs = [a for a in allocs if a[1] >=0.8]
         filtered_allocs = sorted(filtered_allocs, key=operator.itemgetter(0))[: int(0.05 * len(filtered_allocs))]
 #        print lbl, len(filtered_allocs)
         filtered_allocs_dict[lbl] = filtered_allocs
@@ -648,13 +812,13 @@ def expansionStats(save=False):
         print lbl, len(filtered_allocs_dict[lbl])
         s += len(filtered_allocs_dict[lbl])
 
-    print s
-    #return 
+    #print s
     for lbl, allocs in filtered_allocs_dict.iteritems():
         for alloc in allocs:
             doc_pid = alloc[2]
             allocs_per_doc[doc_pid].add(lbl)
    
+    #return allocs_per_doc
     pid_id_map = dict()
     for row in db.select("select pid, id from pap_papers_view where is_test is null"):
         pid_id_map[row['pid']] = row['id']
@@ -662,7 +826,7 @@ def expansionStats(save=False):
     multi_lbls = defaultdict(int)
     for doc_pid, cats_set in allocs_per_doc.iteritems():
         cats = ','.join(cats_set)
-        #assign_category(pid_id_map[doc_pid], cats)
+        assign_category(pid_id_map[doc_pid], cats)
         if len(cats_set) > 1:
             multi_lbls[cats] += 1
 
@@ -671,7 +835,7 @@ def expansionStats(save=False):
 
     allocs_df = pd.DataFrame([(str(doc_id) + '.pdf', ','.join(cats)) for (doc_id, cats) in allocs_per_doc.iteritems()])
     allocs_df.columns = ['pdf_name', 'categories']
-    allocs_df.merge(paperity_df, on='pdf_name', how='left')[['pid', 'url_paperity', 'title', 'categories']].to_csv('allocs_small_first_iter.csv', sep=';')
+    allocs_df.merge(paperity_df, on='pdf_name', how='left')[['pid', 'url_paperity', 'title', 'categories']].to_csv('allocs_fullcorpus_second_iter.csv', sep=';')
 
 def labeledSetStats():
     train_iter = getDocumentIterator1("learned_category is not null")
@@ -712,12 +876,15 @@ if __name__ == "__main__":
 	iterative = False
         scores = defaultdict(dict)
         #labeledSetStats()
-        test_training_and_validation_set()
+        #save_labels()
+        #prepare_doc_split()
         #propagateLabels()
         #testModelBuilding()
+        #test_training_and_validation_set()
         #testLabelPropagation()
         #calcDistances()
         #expansionStats()
+        inspect_docs_as_bows()
 """
         try:
             if iterative:
