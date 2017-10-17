@@ -297,7 +297,7 @@ class PaperClassifier():
 
         return paper_clf
 	
-    def classify(self, fulltext, min_discipline_contribution=0.8, max_num_disciplines=2):
+    def classify(self, fulltext, min_discipline_contribution=0.33, max_num_disciplines=3):
         """Assigns semantic profile and disciplines to a given paper.
         -fulltext: a full text of a paper in a raw text format.
         -min_discipline_contribution: specifies a minimum percentage of how much a discipline contributes to a document to be taken into account in classification
