@@ -3,14 +3,11 @@ Dependencies: gensim, nltk, sklearn, numpy
 """
 
 from gensim import corpora, models
-import itertools
 from nltk.corpus import stopwords
 import re
 import math
 import numpy
 import os
-from paperity.environ import db
-from paperity.content.paper import Paper
 from collections import defaultdict
 from sklearn.linear_model import LogisticRegression
 from sklearn.preprocessing import MultiLabelBinarizer
@@ -311,7 +308,7 @@ class PaperClassifier():
 	"""
         profile = self.semantic_model.inferProfile(fulltext)
         confidence_scores = self.classifier.predict_proba([profile])[0]
-        #confidence_scores /= confidence_scores.sum()
+        confidence_scores /= confidence_scores.sum()
         sorted_conf_ids = numpy.argsort(confidence_scores)[-max_num_disciplines:]
         max_conf_ids = [max_id for max_id in sorted_conf_ids if confidence_scores[max_id] >= min_discipline_contribution]
         if not max_conf_ids:
@@ -346,6 +343,9 @@ class PaperClassifier():
         self.semantic_model.save(folder)
 
 ############## Corpus helpers (for testing) ###############################
+
+from paperity.environ import db
+from paperity.content.paper import Paper
 
 class Corpus(object):
     def __init__(self, db, doc_filter, english_only=False, db_window_size=10000):
@@ -410,15 +410,15 @@ class UnlabeledCorpus(object):
         for doc in self.corpus:
             yield doc.pid, doc.fulltext
 
-################## Testing #################################
+################## Runner  #################################
  
 if __name__ == "__main__":
     folder = 'paper_classifier_dumps'
     logging.basicConfig(format='%(asctime)s : %(levelname)s : %(message)s', level=logging.INFO)
     #logging.basicConfig(filename=os.path.join(folder,'paper_classifier.log'), format='%(asctime)s : %(levelname)s : %(message)s', level=logging.INFO)
     
-    #semantic_model = SemanticModel.load('paper_classifier_dumps') 
-   
+    #semantic_model = SemanticModel.load('paper_classifier_dumps')  
+    
     trainset = LabeledCorpus(Corpus(db, doc_filter="published = 0 and is_test = 1"))
     full_corpus = UnlabeledCorpus(Corpus(db, doc_filter="is_test = 1"))
     test_set = LabeledCorpus(Corpus(db, doc_filter="published = 1 and is_test = 1"))
@@ -438,6 +438,6 @@ if __name__ == "__main__":
     y_test = paper_classifier.label_binarizer.transform(y_test)
     pred = paper_classifier.label_binarizer.transform(pred)
 
-    from sklearn.metrics import confusion_matrix, classification_report
+    from sklearn.metrics import classification_report
     print classification_report(y_test, pred, target_names=paper_classifier.label_binarizer.classes_)
 
