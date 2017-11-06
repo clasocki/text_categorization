@@ -4,6 +4,7 @@ from nltk.stem import SnowballStemmer
 from nltk.corpus import stopwords
 import re
 import math
+import numpy
 
 import logging
 logging.basicConfig(format='%(asctime)s : %(levelname)s : %(message)s', level=logging.INFO)
@@ -17,7 +18,7 @@ class SemanticModel(object):
 		self.tfidf = None
 		self.dict = None
                 self.num_features = None
-                self.stopwords = stopwords.words('english')
+                self.stopwords = set(stopwords.words('english'))
                 self.stemmer = SnowballStemmer('english') 
 
         def tokenize(self, text):
@@ -28,6 +29,7 @@ class SemanticModel(object):
             result = []
             for word in words:
                 if word not in self.stopwords and not word.isdigit() and len(word) >= 2:
+                    #word = self.stemmer.stem(word)
                     result.append(word)
 
             return result
@@ -51,7 +53,7 @@ class SemanticModel(object):
         def getTfIdfCorpus(model, getTexts):
             corpus = (model.dict.doc2bow(tokenized_text) for tokenized_text in model.tokenizeTexts(getTexts()))
             
-            model.tfidf = models.TfidfModel(corpus, dictionary=model.dict, wlocal=lognormalize, normalize=False)
+            model.tfidf = models.TfidfModel(corpus, dictionary=model.dict, normalize=False, wlocal=lognormalize)
             corpus_tfidf = model.tfidf[corpus]
 
             return corpus_tfidf
@@ -64,6 +66,7 @@ class SemanticModel(object):
 	    model.lsi = models.LsiModel.load(filepath + '.lsi')
             model.tfidf = models.TfidfModel.load(filepath + '.tfidf')
             model.num_features = model.lsi.num_topics
+            #model.lsi.num_topics = 150
 
             return model
 
@@ -72,10 +75,10 @@ class SemanticModel(object):
 		model = SemanticModel()
                 model.num_features = num_features
 
-                #model.dict = corpora.Dictionary.load(filepath + '.dict')
-		model.dict = model.createDictionary(model.tokenizeTexts(getTexts()), no_below, no_above, keep_n)
-                if filepath:
-                    model.dict.save(filepath + '.dict')
+                model.dict = corpora.Dictionary.load(filepath + '.dict')
+		#model.dict = model.createDictionary(model.tokenizeTexts(getTexts()), no_below, no_above, keep_n)
+                #if filepath:
+                #    model.dict.save(filepath + '.dict')
 		
                 corpus_tfidf = SemanticModel.getTfIdfCorpus(model, getTexts)
 
@@ -86,15 +89,16 @@ class SemanticModel(object):
                     model.lsi.save(filepath + '.lsi')
 
 		return model
-
-	def inferProfile(self, text):
+	
+        def inferProfile(self, text):
                 tokenized_text = self.tokenize(text)
 		text_bow = self.dict.doc2bow(tokenized_text)
 		text_tfidf = self.tfidf[text_bow]
 		profile = self.lsi[text_tfidf]
-	
-		profile = [feature_val for feature_id, feature_val in profile]
-                return profile if profile else [0] * self.num_features
+	        
+                profile = numpy.asarray([feature_val for feature_id, feature_val in profile])
+                #profile = profile / numpy.linalg.norm(profile)
+                return profile if profile.any() else numpy.zeros(self.num_features)
 
 	def inferProfiles(self, tokenized_texts):
 		return [self.inferProfile(text) for text in tokenized_texts]
